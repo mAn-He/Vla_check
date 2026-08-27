@@ -252,3 +252,41 @@
 5. `MUJOCO_GL=osmesa` 폴백 실동작(공식 문서에 없는 우리 추가 단계).
 6. openpi 이슈 #849 원문(0% 가드레일의 일화적 근거).
 7. HF 모델카드 원문 4건(네트워크 허용 환경에서).
+
+---
+
+## Phase 1 로컬 검증 결과 (WSL2 / GPU 없음)
+
+실행 환경: WSL2 Ubuntu, Python 3.8.20, torch 1.11.0+cu113
+
+| 항목 | 상태 | 확인 내용 |
+|---|---|---|
+| LIBERO benchmark API | ✅ | `libero_spatial` 10 tasks, instruction 원문 정상 조회 |
+| observation dict 키 | ✅ | 에피소드 220스텝 완주, 키 오류 없음 |
+| 성공 판정 | ✅ | random 정책에서 `success=false` 정상 기록 |
+| max_steps (libero_spatial) | ✅ | 220 확인 |
+| MUJOCO_GL | ✅ | WSL2에서 **egl** 로 동작 (osmesa 폴백 불필요) |
+| WebSocket 프로토콜 | ✅ | `action_horizon: 10` 메타데이터 수신 정상 |
+| JSONL 스키마 | ✅ | 실패 에피소드 포함 기록, 즉시 flush 확인 |
+| resume | ✅ | 재실행 시 `10 planned, 10 already done` 스킵 |
+| heatmap | ✅ | summary / per_task PNG+SVG 생성 |
+
+### 발견된 문제와 우회 (10_libero.sh에 반영함)
+
+1. **LIBERO editable 설치가 MAPPING을 비운 채 완료**
+   `__editable___libero_0_1_0_finder.py`의 `MAPPING = {}` 로 `import libero` 실패.
+   → site-packages에 `libero_path.pth` 수동 생성으로 우회.
+
+2. **첫 import 시 대화형 프롬프트**
+   "Do you want to specify a custom path for the dataset folder? (Y/N)" 에서 멈춤.
+   자동화 스크립트를 블로킹하므로 `echo "N" |` 로 사전 처리.
+
+3. **datasets 경로 경고는 무시 가능**
+   `[Warning]: datasets path ... does not exist!` — 파인튜닝된 체크포인트를 쓰므로
+   LIBERO 원본 데이터셋은 불필요.
+
+### 정정
+
+- **`nvidia/Cosmos-Reason2-2B`는 gated가 아니다.**
+  인증 없이 `config.json` 다운로드 성공 확인. HF 토큰 불필요.
+  README의 "gated" 표기는 오류이므로 수정 대상.

@@ -37,3 +37,9 @@ uv pip install pyyaml matplotlib seaborn pandas
 python -c "import libero; print(libero.__file__)"
 python -c "import openpi_client; print(openpi_client.__file__)"
 echo "[OK] libero eval-client env ready (${VENV})"
+echo "$REPO_ROOT/third_party/LIBERO" > "$VENV/lib/python3.8/site-packages/libero_path.pth"
+
+# 첫 import 시 데이터셋 경로를 묻는 대화형 프롬프트가 스크립트를 멈춘다.
+echo "N" | python -c "from libero.libero import benchmark" 2>/dev/null || true
+
+python -c "import libero; from libero.libero import benchmark; print('[OK] libero import 확인')"

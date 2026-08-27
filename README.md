@@ -43,7 +43,7 @@ prompt                   str            LIBERO task.language 원문
 | 모델 | 체크포인트 | 출처 |
 |---|---|---|
 | π0.5 | `gs://openpi-assets/checkpoints/pi05_libero` | openpi `pi05_libero` config로 학습된 공식 체크포인트 (공식 성공률 평균 96.85%) |
-| GR00T N1.7 | `nvidia/GR00T-N1.7-LIBERO` (+gated `nvidia/Cosmos-Reason2-2B` 백본) | Isaac-GR00T examples/LIBERO (공식 평균 ≈97%) |
+| GR00T N1.7 | `nvidia/GR00T-N1.7-LIBERO` (+ `nvidia/Cosmos-Reason2-2B` 백본) | Isaac-GR00T examples/LIBERO (공식 평균 ≈97%) |
 | OpenVLA-OFT | `moojink/openvla-7b-oft-finetuned-libero-{spatial,object,goal,10}` | openvla-oft LIBERO.md (suite별 평균 97.1%) |
 
 원본 `openvla/openvla-7b`는 LIBERO 파인튜닝이 없어 그대로 쓰면 불공정하므로
