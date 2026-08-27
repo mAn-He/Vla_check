@@ -1,150 +1,254 @@
-# DOC_TRACE.md — 공식 문서 대조 검증 (초안, §9-2단계)
+# DOC_TRACE.md — 공식 문서 대조 검증
 
-- 검증 일자: 2026-08-27
-- 검증 방법: 지시서 §2의 URL 8개 전부와, 각 저장소 내부의 실제 소스 파일(raw.githubusercontent.com)을 fetch하여 대조. GPU/실행 검증 없음 — **모든 항목은 문서·소스 코드 근거만으로 표기**.
-- 표기 규칙: ✅ = 저장소/문서에서 직접 확인. ⚠️ = 확인 못했거나 간접 확인(추후 코드에 `# TODO(verify)` 주석 필요).
-- 코드가 아직 작성되지 않았으므로 "파일:줄" 컬럼은 **사용 예정 위치**로 기입했다. 코드 작성 후 실제 줄 번호로 갱신한다.
+- 최종 갱신: 2026-08-27 (코드 골격 작성 + GPU 없이 가능한 실행 검증까지 반영)
+- 표기 규칙:
+  - ✅ = **실제로 실행해서** 확인 (이 저장소의 코드가 이 환경에서 돌았음)
+  - 📄 = 공식 저장소의 **문서/소스 코드에서** 확인 (실행은 안 함)
+  - ⚠️ = 문서에서도 확인 못함 (코드에 `# TODO(verify)` 주석 존재)
+- GPU/LIBERO 실행 환경이 없으므로 모델·환경 관련 항목은 📄가 상한이다.
+  ✅는 아래 §0의 로컬 실행 항목에만 붙어 있다.
 
 ## 접근 제한 (정직성 기록)
 
-- huggingface.co, arxiv.org 직접 fetch가 이 환경에서 차단됨. HF 체크포인트 존재 여부는 웹 검색 결과(실제 HF 페이지로 연결되는 결과)로 교차 확인했다. 해당 항목은 "✅(검색 교차확인)"으로 구분 표기.
-- GitHub 저장소(README·raw 소스)는 전부 직접 읽음.
+- huggingface.co, arxiv.org 직접 fetch가 이 작업 환경에서 차단됨. HF 체크포인트
+  존재는 웹 검색 결과(실제 HF 페이지로 연결)로 교차 확인 → 해당 항목은
+  "📄(검색 교차확인)"으로 구분.
+- GitHub의 README·raw 소스는 전부 직접 읽음(§4 URL 체크리스트).
+- **주의**: 이번 작업 지시가 전제한 기존 골격(`vla-libero-bench.zip`)은 이
+  저장소에 존재하지 않았다. 골격은 지시서 사양대로 이 세션에서 새로 작성했고,
+  지시서의 ⚠️ 우선순위 항목(1~7)은 모두 아래 표의 근거로 해소했다.
 
 ---
 
-## 1. 지시서와 저장소가 달랐던 부분 (저장소 우선 적용)
+## 0. 실제로 실행해서 확인한 것 (✅)
 
-지시서 §2의 "저장소가 우선" 원칙에 따라, 아래 항목은 **저장소 쪽을 따른다.**
+이 환경(Python 3.11 venv: numpy/msgpack/websockets/pyyaml/pillow/matplotlib/seaborn/pandas)에서:
+
+| 실행한 것 | 결과 |
+|---|---|
+| `python -m py_compile` — 저장소의 모든 `.py` | ✅ 전부 통과 |
+| `bash -n setup/*.sh` (5개) | ✅ 전부 통과 |
+| `python servers/serve_random.py --port 8123` + `curl localhost:8123/healthz` | ✅ HTTP 200 "OK" |
+| `client/policy_client.py`(번들 폴백) ↔ serve_random 왕복: 핸드셰이크 metadata 수신, `infer()` → `{"actions": (10,7)}` + `server_timing` | ✅ |
+| 서버 에러 경로: 필수 키 누락 obs → 서버가 traceback 문자열 프레임 전송 → 클라이언트 `RuntimeError` | ✅ |
+| `run_eval.run_episode` — 성공 경로(대기 10스텝 후 done→success, num_steps 정확), 타임아웃 경로(max_steps 소진→failure), 7-dim 액션으로 env.step 호출 | ✅ (LIBERO step 계약의 mock env + 실서버) |
+| `run_eval.load_completed` — resume 튜플 파싱, 깨진 줄 경고 후 무시 | ✅ |
+| `python client/run_eval.py --model random --suite libero_spatial --limit-episodes 2 --dry-run` | ✅ (LIBERO 미설치 → 정적 suite 맵 경고 후 계획 출력) |
+| `python viz/build_heatmap.py --demo` (global/suite 두 정렬 모드) | ✅ PNG+SVG 4파일 생성, 눈으로 확인 |
+
+실행하지 **못한** 것(GPU/대용량 설치 필요, "테스트 완료" 아님): LIBERO 실제 설치
+(`setup/10_libero.sh` — torch cu113 수 GB 다운로드), 세 모델 서버 구동, 실제
+에피소드 평가. 이들은 VERIFY.md의 체크리스트로 넘긴다.
+
+---
+
+## 1. 지시서와 실제(공식 저장소)가 달랐던 점 — 저장소 우선 적용
 
 ### 1.1 [중대] 통신 프로토콜: HTTP+JSON+base64가 아니라 WebSocket+msgpack
 
-- 지시서 §4는 `GET /health` / `POST /infer` + base64 PNG의 HTTP+JSON 계약을 제시하면서, 동시에 §2에서 "openpi의 프로토콜을 조사해서 채택"하라고 지시한다. 두 지시가 충돌하며, **openpi의 실제 프로토콜은 HTTP가 아니다.**
-- 실제(✅): `WebsocketPolicyServer(policy, host="0.0.0.0", port=args.port)` ↔ `WebsocketClientPolicy(host, port)` — `ws://{host}:{port}` 위에서 **msgpack_numpy** 직렬화로 obs dict를 통째로 주고받는다. base64 인코딩 없음(numpy 배열 그대로 pack). 연결 직후 서버가 메타데이터를 먼저 push한다. 서버 오류는 `str` 응답으로 신호.
-  - 근거: `packages/openpi-client/src/openpi_client/websocket_client_policy.py`, `scripts/serve_policy.py`
-- 적용 결정: 서버 3종은 openpi의 WebSocket+msgpack 프로토콜을 구현한다(`openpi-client` 패키지를 client 의존성으로 사용). §4의 HTTP 스키마는 폐기. `/health` 대응물은 연결 시 서버 메타데이터 push로 대체.
+- 지시서 §4는 `GET /health` / `POST /infer` + base64 PNG의 HTTP 계약을 제시하지만
+  동시에 "openpi의 프로토콜을 채택"하라고 지시. openpi의 실제 프로토콜은(📄):
+  WebSocket + **msgpack_numpy**(numpy 배열 그대로, base64 없음), 연결 직후 서버가
+  metadata를 먼저 push, 에러는 str 프레임(traceback) 후 close. 같은 포트에 HTTP
+  `GET /healthz`(200 "OK")가 내장되어 지시서의 /health 요구도 사실상 충족.
+  - 근거: `packages/openpi-client/src/openpi_client/websocket_client_policy.py`,
+    `src/openpi/serving/websocket_policy_server.py`, `packages/openpi-client/src/openpi_client/msgpack_numpy.py`
+- 적용: `servers/base_server.py`가 이 프로토콜을 그대로 구현(✅ 왕복 검증됨),
+  π0.5는 openpi 공식 서버를 무수정 사용.
 
-### 1.2 [중대] observation 키: "LIBERO 키를 그대로" 쓰지 않는다
+### 1.2 [중대] observation 키: "LIBERO 키 그대로"가 아니라 openpi 규약 + 180도 회전
 
-- 지시서 §4: "camera_key는 LIBERO가 주는 키를 그대로 쓴다. 임의로 이름을 바꾸지 말 것."
-- 실제(✅): openpi LIBERO 클라이언트(`examples/libero/main.py`)는 LIBERO 키를 그대로 보내지 않고 다음으로 **리매핑**한다:
-  - `"observation/image"` ← `obs["agentview_image"]`, `"observation/wrist_image"` ← `obs["robot0_eye_in_hand_image"]`
-  - `"observation/state"` ← `np.concatenate((robot0_eef_pos(3), quat→axis-angle(3), robot0_gripper_qpos(2)))` = **8-dim**
-  - `"prompt"` ← task language instruction
-  - 이미지는 **180도 회전 필수**: `np.ascontiguousarray(img[::-1, ::-1])` ("rotate 180 degrees to match train preprocessing") 후 `resize_with_pad(…, 224, 224)` + uint8 변환.
-- 적용 결정: openpi 프로토콜을 채택하므로 obs 키는 openpi 규약(`observation/*`)을 따르고, LIBERO 원본 키→openpi 키 매핑과 180도 회전은 client의 LIBERO 어댑터 계층에 명시적으로 둔다.
+- 지시서 §4 "camera_key는 LIBERO가 주는 키를 그대로"와 달리, openpi 공식
+  클라이언트는 `observation/image`·`observation/wrist_image`·`observation/state`(8-dim)·
+  `prompt`로 리매핑하고 이미지를 **180도 회전**한다(📄, examples/libero/main.py:115-141).
+- 이 회전은 세 하네스 공통 규약이다(📄): OFT `libero_utils.get_libero_image`
+  ("rotate 180 degrees to match train preprocessing"), GR00T
+  `gr00t/eval/sim/LIBERO/libero_env.py:148-149`(`[::-1, ::-1]`)도 동일.
+  8-dim state 구성 `[eef_pos, quat→axis-angle, gripper_qpos]`도 셋 다 동일.
+- 적용: 클라이언트가 회전+리매핑(`client/libero_env.py:119-131`), openpi에만
+  224 resize_with_pad를 클라이언트에서 적용(공식 클라이언트 재현), GR00T/OFT는
+  원본 256을 보내고 서버가 자기 방식대로 리사이즈(각 공식 하네스와 동일 분담).
 
 ### 1.3 [중대] `max_steps`: LIBERO에는 "태스크별 기본값"이 없다
 
-- 지시서 §2는 "태스크별 max_steps 기본값"을 LIBERO에서 확인하라고 하지만, **LIBERO 자체에는 태스크별/스위트별 max_steps가 존재하지 않는다**(✅ — benchmark 모듈에 horizon 없음; env는 robosuite 기본 `horizon=1000`; LIBERO 자체 eval 설정은 전역 `max_steps: 600`, `libero/configs/eval/default.yaml`).
-- 스위트별 값은 **openpi 하네스의 선택**이다(✅, `examples/libero/main.py`): `libero_spatial=220, libero_object=280, libero_goal=300, libero_10=520, libero_90=400`. 지시서 §5 예시의 `max_steps: 520`은 이 중 libero_10 값과 일치.
-- 적용 결정: 공개 재현 수치(openpi 결과표)와 비교 가능해야 하므로 openpi의 스위트별 값을 기본값으로 채택하고, 출처를 openpi로 명기한다(LIBERO로 인용하지 않음). openpi의 `num_steps_wait=10`(초기 dummy action으로 물리 안정화 대기) 관례도 함께 채택.
+- LIBERO 자체에는 suite별 max_steps가 없다(📄 — benchmark 모듈에 horizon 없음,
+  env 기본은 robosuite `horizon=1000`, LIBERO 자체 eval은 전역
+  `max_steps: 600`/`n_eval: 20`, `libero/configs/eval/default.yaml`).
+- suite별 220/280/300/520/400은 **openpi와 openvla-oft 두 공식 하네스가 동일하게
+  쓰는 값**이다(📄 — openpi examples/libero/main.py:60-71, openvla-oft
+  run_libero_eval.py:63-69, 주석까지 동일). 적용: `client/libero_env.py:38-44`에
+  고정, 출처 명기. 변경 금지.
 
-### 1.4 [중대] GR00T N1.7: 모델·체크포인트는 실존하나, API가 구버전(N1/N1.5)과 전혀 다름
+### 1.4 성공 판정: `done`이 성공 신호 (지시서에 미정의였던 항목)
 
-- `nvidia/GR00T-N1.7-3B`는 실존(✅(검색 교차확인) — Isaac-GR00T main 브랜치 = N1.7 GA; N1.5/N1.6은 `n1d5`/`n1d6` 브랜치). 지시서의 모델 표 자체는 옳다.
-- 그러나 널리 알려진 N1.5식 API는 main에서 전부 사라졌다(✅):
-  - `gr00t/model/policy.py` → **404**. 현재는 `gr00t/policy/gr00t_policy.py`.
-  - 생성자: `Gr00tPolicy(embodiment_tag, model_path, *, device, strict=True)` — `modality_config`/`modality_transform` 인자와 `DATA_CONFIG_MAP`은 **존재하지 않음**. modality config는 체크포인트 내장 `AutoProcessor`에서 나온다(`policy.get_modality_config()`).
-  - `get_action(observation, options=None) -> (action_dict, info_dict)` — obs는 flat `"video.ego_view"`식이 아니라 **중첩 dict**: `{"video": {name: uint8 (B,T,H,W,3)}, "state": {name: float32 (B,T,D)}, "language": {"task": [[str]]}}`. 출력 action은 물리 단위(비정규화), base 모델 `action_horizon=40`.
-  - 서버/클라이언트: `RobotInferenceServer/Client`가 아니라 `PolicyServer`/`PolicyClient`(**ZeroMQ** tcp 기본 5555, msgpack_numpy) — `gr00t/policy/server_client.py`. 우리 하네스에서는 이를 openpi 프로토콜로 감싸는 어댑터 서버(`serve_groot.py`)를 둔다.
-- **LIBERO는 first-class 지원**(✅): 파인튜닝 체크포인트 `nvidia/GR00T-N1.7-LIBERO` + `EmbodimentTag.LIBERO_PANDA = "libero_sim"` + `examples/LIBERO/`(공식 성공률: spatial 97.65 / goal 97.5 / object 98.45 / 10: 94.35).
-- 적용 결정: 공정 비교(다른 두 모델은 LIBERO 파인튜닝 체크포인트 사용)를 위해 base `GR00T-N1.7-3B`가 아니라 **`nvidia/GR00T-N1.7-LIBERO` + `LIBERO_PANDA` 태그를 사용**한다. 지시서 표의 체크포인트 컬럼과 다르므로 명시 보고. 주의(⚠️): 이 체크포인트는 HF에서 중첩 폴더 구조라 로딩 시 특수 처리 필요(`scripts/deployment/README.md` 참조), VLM 백본 `nvidia/Cosmos-Reason2-2B`는 **gated**라 HF 인증 필요.
+- 세 근거가 일치(📄): openpi main.py:153-157(`if done: successes += 1`),
+  OFT run_libero_eval.py:350-353(동일), LIBERO 자체 metric.py:136-155
+  (`dones[k] = dones[k] or done[k]` → `num_success += int(dones[k])`).
+  `env.check_success()`(env_wrapper.py:103, `self.env._check_success()` 위임)도
+  같은 신호의 직접 조회 경로다. GR00T의 LIBERO env는 `ignore_done=True`로 두고
+  `info["success"] = env.check_success()`를 쓴다(📄) — 신호 자체는 동일.
+- 적용: `client/run_eval.py`의 `run_episode`는 스텝 예산 내 `done` → 성공
+  (✅ mock env로 성공/타임아웃 경로 실행 확인).
 
-### 1.5 OpenVLA: OFT-LIBERO 체크포인트 실존, 단 인터페이스가 vanilla와 다름
+### 1.5 [중대] GR00T N1.7: 모델·체크포인트 실존, 단 API가 구버전과 전혀 다름
 
-- OFT 레시피: `moojink/openvla-oft` (paper: "Fine-Tuning Vision-Language-Action Models: Optimizing Speed and Success", arXiv:2502.19645). LIBERO 체크포인트 전부 실존(✅ LIBERO.md 명기 + ✅(검색 교차확인)): `moojink/openvla-7b-oft-finetuned-libero-{spatial,object,goal,10}` + 통합 `…-libero-spatial-object-goal-10`(스위트별 평균 97.1%, 통합 96.8%).
-- 지시서 §2가 전제한 `vla.predict_action(**inputs, unnorm_key=…)` 호출 패턴은 **vanilla openvla용**이다. OFT 추론은 다른 경로(✅): `get_vla(cfg)` + `get_action_head(cfg, llm_dim=…)`(L1-regression MLP 액션 헤드) + `get_proprio_projector(…)` + `get_vla_action(cfg, vla, processor, observation, task_description, action_head, proprio_projector)` → **action chunk 반환**. obs는 `{"full_image", "wrist_image", "state", "task_description"}`. 설정: `use_l1_regression=True, num_images_in_input=2, use_proprio=True, center_crop=True, unnorm_key="libero_spatial_no_noops"` 등.
-- 의존성 주의(✅): OFT는 커스텀 transformers fork(`github.com/moojink/transformers-openvla-oft.git`, v4.40.1 기반) 필요 — `40_openvla.sh`에 반영해야 함.
-- 참고: openvla org 자체에도 LoRA 파인튜닝 체크포인트 `openvla/openvla-7b-finetuned-libero-{spatial,object,goal,10}`가 존재(✅ README). 적용 결정: 성능·속도 근거로 **OFT 체크포인트를 1순위**, openvla LoRA 체크포인트를 대안으로 기록.
+- `nvidia/GR00T-N1.7-3B` 실존(📄(검색 교차확인); Isaac-GR00T main 브랜치 = N1.7 GA,
+  N1.5/N1.6은 `n1d5`/`n1d6` 브랜치). 지시서의 모델 표는 옳다.
+- 구버전(N1/N1.5) API는 main에서 소멸(📄): `gr00t/model/policy.py` → 404, 현재는
+  `gr00t/policy/gr00t_policy.py`의
+  `Gr00tPolicy(embodiment_tag, model_path, *, device, strict=True)`.
+  `modality_config`/`modality_transform` 인자와 `DATA_CONFIG_MAP`은 없음 —
+  modality config는 체크포인트 내장 AutoProcessor에서. obs는 중첩 dict
+  (`{"video": {...}, "state": {...}, "language": {"task": [[str]]}}`), 출력은
+  비정규화 `(action_dict, info)`, base `action_horizon=40`.
+- **LIBERO는 first-class**(📄): `nvidia/GR00T-N1.7-LIBERO` 체크포인트 +
+  `EmbodimentTag.LIBERO_PANDA = "libero_sim"`(embodiment_tags.py) +
+  `examples/LIBERO/`(공식 성공률 97.65/97.5/98.45/94.35) + 전용 sim env
+  (`gr00t/eval/sim/LIBERO/libero_env.py`).
+- 적용: 공정 비교(3모델 전부 LIBERO 파인튜닝판)를 위해 base 3B 대신
+  **`nvidia/GR00T-N1.7-LIBERO`** 사용 — 지시서 표의 체크포인트와 다름을 명시 보고.
+  서빙은 NVIDIA 공식 서버(`gr00t/eval/run_gr00t_server.py`, ZMQ :5555,
+  `--use-sim-policy-wrapper`)를 그대로 쓰고 `servers/serve_groot.py`는
+  WebSocket↔ZMQ 어댑터만 담당.
+- 주의(📄): VLM 백본 `nvidia/Cosmos-Reason2-2B`는 HF **gated**(모든 GR00T
+  체크포인트가 첫 로드 시 당김); N1.7-LIBERO는 HF에서 중첩 폴더 구조
+  (`scripts/deployment/README.md` 참조).
 
-### 1.6 경미한 차이·확인 사항
+### 1.6 OpenVLA: OFT-LIBERO 체크포인트 실존, 추론 인터페이스는 vanilla와 다름
 
-- **task suite 개수**: LIBERO는 suite 5개(`libero_spatial/object/goal/10/90`, 각 10/10/10/10/90 태스크; `libero_100`은 90+10 합산 등록). 지시서 §8의 "suite 4개"는 관례적 평가 대상(spatial/object/goal/10)과 일치하므로 그대로 두되, heatmap 코드가 suite 목록을 하드코딩하지 않고 결과 JSONL에서 유도하게 한다.
-- **π0.5 PyTorch 포팅**: 실존 확인(✅) — openpi README "PyTorch Support"(2025-09), `src/openpi/models_pytorch/`, `pi05_libero` config에 `pytorch_weight_path` 필드 존재. 지시서 표와 일치.
-- **`pi05_libero` config**: 실존(✅). `Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False)`, `action_dim`은 `Pi0Config` 기본값 32. 체크포인트 `gs://openpi-assets/checkpoints/pi05_libero` — serve_policy.py의 LIBERO 기본 체크포인트로도 확인. 공식 성공률: spatial 98.8 / object 98.2 / goal 98.0 / 10: 92.4 (평균 96.85).
-- **openpi 이슈 #849 (`pi0_fast_libero` 체크포인트 불일치)**: README·LIBERO README에서 언급 확인 못함(⚠️). `pi0_fast_libero` train config는 존재하나 공개 체크포인트는 README 표에 없음. 20-에피소드 0% 가드레일(§6) 설계 근거로는 그대로 유지(가드레일 자체는 이슈 진위와 무관하게 타당).
-- **Python 버전 충돌 실측치**: LIBERO(권장 3.8.13) / openpi LIBERO client(uv venv --python 3.8) / GR00T(>=3.12,<3.13 전용) / OpenVLA·OFT(3.10). venv 분리 지시(§1)가 저장소들 요구사항과 정합함을 확인(✅).
-- **flash-attn**: GR00T `flash-attn==2.8.3`(cu12·torch2.9·cp312 prebuilt wheel 고정), OpenVLA `flash-attn==2.5.5`(vanilla 추론 경로에서는 optional). 버전이 서로 달라 §1의 "venv 분리" 근거 재확인(✅).
-- **MUJOCO_GL**: openpi compose.yml은 `MUJOCO_GL=egl`(+`PYOPENGL_PLATFORM=egl`, `MUJOCO_EGL_DEVICE_ID=0`)이 기본이고 문서화된 폴백은 `glx`뿐(✅). 지시서의 egl→osmesa→glx 3단 폴백은 openpi보다 넓은 초집합이므로 그대로 채택(osmesa 단계는 ⚠️ — openpi 문서에 없음, 우리 추가분).
+- OFT 레시피 `moojink/openvla-oft`(arXiv:2502.19645) + LIBERO 체크포인트 4종
+  `moojink/openvla-7b-oft-finetuned-libero-{spatial,object,goal,10}` + 통합
+  `…-spatial-object-goal-10` 전부 실존(📄 LIBERO.md 명기 + 📄(검색 교차확인);
+  suite별 평균 97.1% vs 통합 96.8%).
+- 지시서 §2의 `vla.predict_action(**inputs, unnorm_key=…)`는 vanilla openvla
+  경로다. OFT는(📄, run_libero_eval.py + robot_utils.py):
+  `GenerateConfig` + `initialize_model()`(L1-regression action head,
+  proprio projector `proprio_dim=8`, processor, unnorm_key `_no_noops` 폴백) →
+  `get_action(...)` → **action chunk** → 액션마다
+  `normalize_gripper_action(binarize=True)` + `invert_gripper_action`.
+- 의존성(📄): Python 3.10, PyTorch 2.2.0, **커스텀 transformers 4.40.1 fork**
+  (`github.com/moojink/transformers-openvla-oft.git`), flash-attn 2.5.5
+  (`--no-build-isolation`); LIBERO를 같은 env에 설치(LIBERO.md). →
+  `setup/40_openvla.sh`에 그대로 반영.
+- vanilla 참고(📄): `openvla/openvla-7b`는 OXE 970K 학습, LIBERO 파인튜닝 아님.
+  openvla org의 LoRA 파인튜닝판 `openvla/openvla-7b-finetuned-libero-*`도
+  존재하나 OFT 쪽 수치가 높아 OFT를 1순위로 채택.
+
+### 1.7 heatmap §8(b): "전역 오름차순 정렬"과 "suite 경계 구분선"은 양립 불가
+
+- 전 태스크를 전역 평균 오름차순으로 정렬하면 suite가 섞여 경계선이 무의미해진다.
+- 적용: 기본(`--sort global`)은 전역 오름차순 + suite를 색 밴드로 표시,
+  `--sort suite`는 suite 블록 유지 + 경계 구분선 + 블록 내 오름차순.
+  둘 다 구현·실행 확인(✅).
+
+### 1.8 경미한 차이·확인 사항
+
+- LIBERO suite는 5개(+`libero_100` 등록): spatial/object/goal/10 각 10태스크,
+  90은 90태스크(📄 libero_suite_task_map.py). "libero_long"이라는 이름은 없음
+  (장기 스위트는 `libero_10`). 평가 대상 4개는 관례(두 공식 하네스 동일)와 일치.
+- env seed 관행이 하네스마다 다름(📄): openpi는 `env.seed(args.seed=7)`,
+  OFT는 `env.seed(0)` 고정(둘 다 "seed가 고정 init state에서도 물체 위치에 영향"
+  주석). 우리는 `--seed`(기본 7)를 쓰고 JSONL에 기록.
+- `pi05_libero` config 실존(📄, config.py ~743행):
+  `Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False)`,
+  action_dim은 기본 32; 체크포인트 `gs://openpi-assets/checkpoints/pi05_libero`
+  (serve_policy.py의 LIBERO 기본값이기도 함); 공식 성공률 98.8/98.2/98.0/92.4.
+  클라이언트 replan_steps=5, chunk 길이 assert(📄 main.py:144-148) → 동일 구현.
+- π0.5 PyTorch 포팅 실존(📄, README "PyTorch Support", `src/openpi/models_pytorch/`).
+- openpi 이슈 #849(`pi0_fast_libero` 불일치) 원문은 확인 못함(⚠️) — README들에
+  언급 없음. 20-에피소드 0% 가드레일은 이슈 진위와 무관하게 유지.
+- Python/의존성 충돌 실측(📄): LIBERO 3.8 / openpi LIBERO client 3.8 /
+  OFT 3.10 / GR00T 3.12 전용(torch 2.9.0, flash-attn 2.8.3 prebuilt wheel 고정).
+  → venv 분리 지시가 타당함을 확인.
+- MUJOCO_GL(📄): openpi compose.yml 기본 `egl`(+PYOPENGL_PLATFORM=egl), 문서화된
+  폴백은 `glx`뿐. 지시서의 egl→osmesa→glx 3단 폴백은 초집합이라 채택하되
+  osmesa 단계는 공식 문서에 없음(⚠️, `client/libero_env.py:pick_mujoco_gl`).
 
 ---
 
-## 2. 확인된 API 시그니처 (저장소별)
+## 2. 코드의 모든 외부 API 호출 — 근거 대조표
 
 ### 2.1 LIBERO (`Lifelong-Robot-Learning/LIBERO`, 기본 브랜치 `master`)
 
-| 파일:줄(예정) | 호출 | 근거 URL | 문서상 시그니처 / 사실 | 확인 |
+| 파일:줄 | 호출 | 근거 URL | 문서상 시그니처 / 사실 | 확인 |
 |---|---|---|---|---|
-| `client/libero_env.py` | `benchmark.get_benchmark_dict()` | raw…/LIBERO/master/libero/libero/benchmark/__init__.py | `def get_benchmark_dict(help=False)` → `BENCHMARK_MAPPING` (소문자 suite명 → benchmark 클래스; `get_benchmark(name)`도 존재) | ✅ |
-| `client/libero_env.py` | `task_suite = benchmark_dict["libero_10"]()` … `task_suite.get_task(i)` | 동일 + README | `Task` NamedTuple: `name, language, problem, problem_folder, bddl_file, init_states_file`; `get_num_tasks()→n_tasks`, `get_task_names()`, `get_task_bddl_file_path(i)`, `get_task_init_states(i)` | ✅ |
-| `client/libero_env.py` | suite 구성 | raw…/master/libero/libero/benchmark/libero_suite_task_map.py | `libero_spatial`:10, `libero_object`:10, `libero_goal`:10, `libero_10`:10, `libero_90`:90 ("libero_long"이라는 이름은 없음 — 장기 스위트는 `libero_10`) | ✅ |
-| `client/libero_env.py` | `OffScreenRenderEnv(bddl_file_name=…, camera_heights=…, camera_widths=…)` | raw…/master/libero/libero/envs/env_wrapper.py | `class OffScreenRenderEnv(ControlEnv)`: `has_renderer=False, has_offscreen_renderer=True` 강제 후 `ControlEnv.__init__(bddl_file_name, robots=["Panda"], controller="OSC_POSE", …, camera_names=["agentview","robot0_eye_in_hand"], camera_heights=128, camera_widths=128, horizon=1000, …)` | ✅ |
-| `client/libero_env.py` | `env.seed(s)`, `env.reset()`, `env.step(a)` | 동일 + README | `step` → gym-classic 4-tuple `(obs, reward, done, info)`; `reset`은 RandomizationError 재시도 포함 | ✅ |
-| `client/libero_env.py` | `env.set_init_state(init_states[k])` | 동일 + benchmark/__init__.py | `get_task_init_states(i)`: `torch.load(init_states 경로)`; `set_init_state` → `regenerate_obs_from_state(init_state)`. LIBERO 자체 eval(metric.py)은 set_init_state 후 dummy zero-action으로 물리 안정화 | ✅ |
-| `client/libero_env.py` | obs 키 | raw…/master/libero/configs/data/default.yaml (obs_key_mapping) | `agentview_image`, `robot0_eye_in_hand_image`, `robot0_gripper_qpos`, `robot0_joint_pos`; `robot0_eef_pos`/`robot0_eef_quat`는 robosuite `SingleArmEnv` 상속분 | ✅ |
-| `client/libero_env.py` | `{camera_name}_image` 키 생성 규칙 | robosuite (LIBERO repo 밖) | LIBERO repo 안에서 해당 라인 미확인 — 결과 키는 위 obs_key_mapping으로 검증됨 | ⚠️ TODO(verify: robosuite 소스) |
-| `client/run_eval.py` | action 차원 | README(`dummy_action=[0.]*7`), libero/lifelong/metric.py(`np.zeros((env_num,7))`) | 7-dim (OSC_POSE 6 + gripper 1) | ✅ |
-| `client/run_eval.py` | action 범위 [-1,1] | (LIBERO repo에 명시 없음 — robosuite OSC 관례) | 미확인 | ⚠️ TODO(verify: robosuite controller) |
-| `client/run_eval.py` | max_steps | raw…/master/libero/configs/eval/default.yaml | LIBERO 자체: 전역 `max_steps: 600`, `n_eval: 20`. 태스크별 기본값 없음 → §1.3 결정 참조 | ✅ |
-| `setup/10_libero.sh` | 설치 | README + setup.py | 소스 설치(`pip install -r requirements.txt && pip install -e .`), 패키지명 `libero` v0.1.0, 권장 Python 3.8.13. PyPI 배포 여부 미확인 | ✅ (PyPI는 ⚠️) |
+| `client/libero_env.py:142` | `benchmark.get_benchmark_dict()` | raw.githubusercontent.com/Lifelong-Robot-Learning/LIBERO/master/libero/libero/benchmark/__init__.py | `def get_benchmark_dict(help=False)` → `BENCHMARK_MAPPING`(소문자 suite명→클래스) | 📄 |
+| `client/libero_env.py:144-153` | `benchmark_dict[name]()`, `.n_tasks`, `.get_task(i)`, `.get_task_init_states(i)` | 동일 | `Task` NamedTuple(`name, language, problem, problem_folder, bddl_file, init_states_file`); `get_task_init_states`는 `torch.load(init_states 경로)` | 📄 |
+| `client/libero_env.py:60-66` | suite별 태스크 수(정적 맵, dry-run 폴백용) | raw…/master/libero/libero/benchmark/libero_suite_task_map.py | spatial/object/goal/10 각 10, 90은 90 | 📄 |
+| `client/libero_env.py:161-166` | `get_libero_path("bddl_files")`, `OffScreenRenderEnv(bddl_file_name=…, camera_heights=…, camera_widths=…)` | raw…/master/libero/libero/envs/env_wrapper.py + openpi examples/libero/main.py:189-196 + OFT libero_utils.py:18-25 | `OffScreenRenderEnv(ControlEnv)`; `ControlEnv.__init__(bddl_file_name, robots=["Panda"], controller="OSC_POSE", …, camera_names=["agentview","robot0_eye_in_hand"], camera_heights=128, camera_widths=128, horizon=1000, …)`; 두 공식 하네스 모두 resolution 256으로 생성 | 📄 |
+| `client/libero_env.py:167` | `env.seed(seed)` | env_wrapper.py + 두 공식 하네스(생성 직후 호출) | `def seed(self, seed)` — "seed seems to affect object positions even when using fixed initial state" | 📄 |
+| `client/run_eval.py:246-247` | `env.reset()`; `obs = env.set_init_state(init_states[episode_idx])` | env_wrapper.py(`set_init_state` → `regenerate_obs_from_state`) + openpi main.py:93-97 + OFT run_libero_eval.py:293-297 | 두 공식 하네스와 동일 순서(reset → set_init_state → dummy 안정화 스텝) | 📄 |
+| `client/run_eval.py:110` (run_episode) | `env.step(a7)` → `(obs, reward, done, info)` | openpi main.py:109,153 + OFT:319,350 + LIBERO metric.py:136 | gym-classic 4-tuple; 7-dim 액션(OSC_POSE 6+gripper); dummy `[0]*6+[-1]` | 📄 (mock env로 루프 로직은 ✅) |
+| `client/run_eval.py` (성공 판정) | 스텝 예산 내 `done` → success | §1.4의 세 근거 | `env.check_success()`(env_wrapper.py:103)도 동일 신호 | 📄 |
+| `client/libero_env.py:126-130` | obs 키: `agentview_image`, `robot0_eye_in_hand_image`, `robot0_eef_pos`, `robot0_eef_quat`, `robot0_gripper_qpos` | libero/configs/data/default.yaml(obs_key_mapping) + 세 공식 하네스의 실사용 | 세 하네스 전부 이 키를 직접 인덱싱 | 📄 |
+| `client/libero_env.py:101-113` | `quat2axisangle` | openpi main.py:199-214(robosuite transform_utils에서 복사) + OFT libero_utils | 동일 구현 복사 | 📄 |
+| `client/libero_env.py:38-44` | suite별 max_steps | §1.3 | openpi·OFT 공식값 220/280/300/520/400 | 📄 |
+| `client/libero_env.py:73-97` | MUJOCO_GL egl→osmesa→glx 프로브 | openpi compose.yml(egl 기본, glx 폴백 문서화) | osmesa 중간 단계는 우리 추가분 | ⚠️ TODO(verify: osmesa 실동작) |
+| `setup/10_libero.sh` | 소스 설치 + torch 1.11 cu113 | LIBERO README + setup.py(패키지명 `libero`, 권장 py3.8.13) | PyPI 배포 여부 미확인 → 소스 설치 채택 | 📄 |
+| (액션 범위) | [-1,1] 가정 없음 — 서버 출력을 그대로 step | robosuite OSC 관례(LIBERO repo에 명시 없음) | 코드가 범위에 의존하지 않도록 작성 | ⚠️ (robosuite 소스 미확인) |
 
 ### 2.2 openpi (`Physical-Intelligence/openpi`, main)
 
-| 파일:줄(예정) | 호출 | 근거 URL | 문서상 시그니처 / 사실 | 확인 |
+| 파일:줄 | 호출 | 근거 URL | 문서상 시그니처 / 사실 | 확인 |
 |---|---|---|---|---|
-| `servers/serve_openpi.py` | `scripts/serve_policy.py` 인자 | raw…/openpi/main/scripts/serve_policy.py | tyro CLI. `EnvMode: ALOHA/ALOHA_SIM/DROID/LIBERO`; `default_prompt`, `port=8000`, `record`; `policy:checkpoint --policy.config=pi05_libero --policy.dir=…`; LIBERO 기본 = `Checkpoint(config="pi05_libero", dir="gs://openpi-assets/checkpoints/pi05_libero")` | ✅ |
-| `servers/base_server.py` | 서버 프로토콜 | 동일 | `WebsocketPolicyServer(policy=…, host="0.0.0.0", port=…, metadata=…)` + `serve_forever()` — WebSocket+msgpack (§1.1) | ✅ |
-| `client/policy_client.py` | 클라이언트 | raw…/packages/openpi-client/src/openpi_client/websocket_client_policy.py | `WebsocketClientPolicy(host="0.0.0.0", port=None, api_key=None)`; `infer(obs: Dict) -> Dict`; msgpack_numpy, `compression=None, max_size=None`; 연결 시 서버 metadata 수신; `BasePolicy`: abstract `infer`, no-op `reset()` | ✅ |
-| `client/policy_client.py` | 요청/응답 포맷 | raw…/openpi/main/examples/libero/main.py | 요청 키: `observation/image`, `observation/wrist_image`, `observation/state`(8-dim, §1.2), `prompt`. 응답: `client.infer(element)["actions"]` = action chunk(각 action 7-dim; dummy는 `[0.0]*6+[-1.0]`) | ✅ |
-| `configs/eval.yaml` | action horizon / replan | config.py + main.py | `pi05_libero`: `action_horizon=10`; client `replan_steps=5` (`action_plan.extend(chunk[:replan_steps])`, chunk 길이 ≥ replan_steps assert) | ✅ |
-| `client/libero_env.py` | 이미지 전처리 | main.py | 렌더 256(`LIBERO_ENV_RESOLUTION`), 모델 입력 `resize_size=224`, 180도 회전 + `resize_with_pad` + uint8 (§1.2); `num_steps_wait=10`, `num_trials_per_task=50`, `seed=7` | ✅ |
-| `client/run_eval.py` | max_steps per suite | main.py | spatial 220 / object 280 / goal 300 / 10: 520 / 90: 400 | ✅ |
-| `setup/20_openpi.sh` | venv 구성 | README + examples/libero/README.md + compose.yml | 본체: `GIT_LFS_SKIP_SMUDGE=1 uv sync`. LIBERO client는 별도 **Python 3.8** venv(`uv venv --python 3.8 examples/libero/.venv` + `uv pip sync … --extra-index-url cu113 …` + `openpi-client`, `third_party/libero` editable + PYTHONPATH). 권장 경로는 docker compose(`SERVER_ARGS="--env LIBERO"`), `MUJOCO_GL=egl` 기본·`glx` 폴백 | ✅ |
-| `servers/serve_openpi.py` | PyTorch 포팅 | README "PyTorch Support" | π₀/π₀.₅ PyTorch 구현 존재(`src/openpi/models_pytorch/`), transformers 4.53.2, 체크포인트 자동 감지 | ✅ |
+| `servers/base_server.py` 전체 | WebSocket 서버 프로토콜(metadata 선전송, msgpack, str-traceback 에러, `/healthz`) | raw…/openpi/main/src/openpi/serving/websocket_policy_server.py | `WebsocketPolicyServer(policy, host, port, metadata)`; `_health_check`: `GET /healthz` → 200 "OK" | 📄 (우리 구현 왕복은 ✅) |
+| `common/msgpack_numpy.py` | 와이어 코덱 | raw…/packages/openpi-client/src/openpi_client/msgpack_numpy.py | `b"__ndarray__"`/`b"__npgeneric__"` 엔벨로프, dtype/shape 필드 — 동일 사본 | 📄 (왕복 ✅) |
+| `client/policy_client.py:24` | `openpi_client.websocket_client_policy.WebsocketClientPolicy` (우선 사용) | raw…/packages/openpi-client/src/openpi_client/websocket_client_policy.py | `__init__(host="0.0.0.0", port=None, api_key=None)`; `infer(obs)->dict`; `compression=None, max_size=None`; 연결 직후 metadata unpack; str 응답=에러 | 📄 (번들 폴백 동작은 ✅) |
+| `client/run_eval.py:117-131` (run_episode) | 요청 obs 키·응답 `"actions"` chunk·deque 소비 | raw…/openpi/main/examples/libero/main.py:127-158 | `observation/image`, `observation/wrist_image`, `observation/state`(8-dim), `prompt`; `client.infer(element)["actions"]`; `replan_steps=5`, chunk 길이 assert | 📄 (mock 왕복 ✅) |
+| `client/image_utils.py` | `resize_with_pad`, `convert_to_uint8` | raw…/packages/openpi-client/src/openpi_client/image_tools.py | PIL bilinear + zero-pad, tf.image.resize_with_pad 재현 — 동일 사본(공식 패키지 있으면 그것 사용) | 📄 |
+| `servers/serve_openpi.py:46-52` | `uv run scripts/serve_policy.py --env LIBERO` / `policy:checkpoint --policy.config=… --policy.dir=…` | raw…/openpi/main/scripts/serve_policy.py | `EnvMode.LIBERO`; LIBERO 기본 = `Checkpoint(config="pi05_libero", dir="gs://openpi-assets/checkpoints/pi05_libero")`; `port=8000` | 📄 |
+| `configs/eval.yaml` (pi05_libero) | resize 224, replan 5, chunk 10 | config.py(`action_horizon=10`) + main.py(`resize_size=224`, `replan_steps=5`) | §1.8 참조 | 📄 |
+| `setup/20_openpi.sh` | `GIT_LFS_SKIP_SMUDGE=1 uv sync` (+`uv pip install -e .`) | openpi README | 공식 설치 명령 그대로 | 📄 |
 
 ### 2.3 GR00T (`NVIDIA/Isaac-GR00T`, main = N1.7)
 
-| 파일:줄(예정) | 호출 | 근거 URL | 문서상 시그니처 / 사실 | 확인 |
+| 파일:줄 | 호출 | 근거 URL | 문서상 시그니처 / 사실 | 확인 |
 |---|---|---|---|---|
-| `servers/serve_groot.py` | 정책 로딩 | raw…/Isaac-GR00T/main/gr00t/policy/gr00t_policy.py | `Gr00tPolicy(embodiment_tag: EmbodimentTag \| str, model_path: str, *, device: int \| str, strict: bool = True)` — modality config는 체크포인트 내장 `AutoProcessor`에서(`get_modality_configs()`); `DATA_CONFIG_MAP` 없음 (§1.4) | ✅ |
-| `servers/serve_groot.py` | `EmbodimentTag` | raw…/main/gr00t/data/embodiment_tags.py | LIBERO용: `LIBERO_PANDA = "libero_sim"`. 기타: `NEW_EMBODIMENT="new_embodiment"`, `SIMPLER_ENV_GOOGLE/WIDOWX`, `UNITREE_G1…` 등. 구버전 `GR1` 태그 없음 | ✅ |
-| `servers/serve_groot.py` | `get_action()` | raw…/main/gr00t/policy/policy.py + getting_started/policy.md | `get_action(observation: dict, options: dict \| None = None) -> tuple[action_dict, info_dict]`; obs 중첩 dict(video uint8 (B,T,H,W,3) / state float32 (B,T,D) / language `{"task": [[str]]}`); action은 비정규화 float32 (B,T,D), base `action_horizon=40`, 실행 간격은 `--execution-horizon` | ✅ |
-| `servers/serve_groot.py` | 자체 서버/클라이언트 | raw…/main/gr00t/policy/server_client.py | `PolicyServer(policy, host="*", port=5555, api_token=None)` / `PolicyClient(host="localhost", port=5555, timeout_ms=15000, …)` — ZeroMQ+msgpack_numpy. 런처: `gr00t/eval/run_gr00t_server.py --model-path … --embodiment-tag …` | ✅ |
-| `servers/serve_groot.py` | LIBERO 체크포인트 | github…/Isaac-GR00T/blob/main/examples/LIBERO/README.md | `nvidia/GR00T-N1.7-LIBERO` + `LIBERO_PANDA`; 데이터 `IPEC-COMMUNITY/libero_*_no_noops_1.0.0_lerobot`; 공식 성공률 97.65/97.5/98.45/94.35; HF상 중첩 폴더 구조 → 로딩 특수 처리(`scripts/deployment/README.md`) | ✅ (HF 페이지는 검색 교차확인) |
-| `setup/30_groot.sh` | 의존성 | raw…/main/pyproject.toml + README | `requires-python = ">=3.12,<3.13"`, `torch==2.9.0`, `flash-attn==2.8.3`(cu12torch2.9 cp312 prebuilt wheel URL 고정), torchcodec 0.8.0(FFmpeg 4–7), 추론 VRAM 16GB+. VLM 백본 `nvidia/Cosmos-Reason2-2B`는 gated(HF 로그인 필요) | ✅ |
+| `setup/30_groot.sh` (서버 기동 명령) | `run_gr00t_server.py --model-path … --embodiment-tag LIBERO_PANDA --use-sim-policy-wrapper --port 5555` | raw…/Isaac-GR00T/main/gr00t/eval/run_gr00t_server.py | `ServerConfig(model_path, embodiment_tag="new_embodiment", device="cuda", host="0.0.0.0", port=5555, strict=True, use_sim_policy_wrapper=False)`; 내부에서 `Gr00tPolicy(embodiment_tag, model_path, device, strict)` 생성, `use_sim_policy_wrapper`면 `Gr00tSimPolicyWrapper(policy)` | 📄 |
+| `servers/serve_groot.py:86` | `PolicyClient(host, port)` + `get_action(obs) -> (action_dict, info)` | raw…/main/gr00t/policy/server_client.py + run_gr00t_server.py | `PolicyClient(host="localhost", port=5555, timeout_ms=15000, api_token=None, strict=False)` — ZMQ tcp, msgpack_numpy; 로컬 policy와 동일 인터페이스 | 📄 |
+| `servers/serve_groot.py:99-115` | flat obs 스키마: `video.image`/`video.wrist_image` uint8 (B,T,H,W,3), `state.{x,y,z,roll,pitch,yaw}` (B,T,1), `state.gripper` (B,T,2), `annotation.human.action.task_description` [str] | raw…/main/gr00t/eval/sim/LIBERO/libero_env.py:111-157 + gr00t_policy.py의 `Gr00tSimPolicyWrapper.check_observation`(uint8/float32·5차원/3차원·T=len(delta_indices) assert) | GR00T 자체 LIBERO env의 `_process_observation`과 동일 구성(180도 회전 포함) | 📄 |
+| `servers/serve_groot.py:119-122` | 액션 flat 키 concat 순서 + 그리퍼 변환 | 동일 libero_env.py:171-186 | `action.x…action.gripper` concat → `normalize_gripper_action(binarize)` → `invert_gripper_action` → env.step | 📄 |
+| `servers/serve_groot.py:70-77` | obs horizon T 기본 1 | (체크포인트 modality config 필요) | N1.7-LIBERO의 실제 delta_indices 길이 미확인 | ⚠️ TODO(verify: 체크포인트 processor에서 확인, assert 메시지가 기대값 알려줌) |
+| `setup/30_groot.sh` | `uv sync`(flash-attn 2.8.3 prebuilt wheel, torch 2.9.0, py3.12 전용), gated `Cosmos-Reason2-2B` 로그인 | raw…/main/pyproject.toml + README(FAQ: uv의 URL-pinned wheel 재검증 메시지는 재빌드 아님) | §1.5·§1.8 참조 | 📄 |
+| `configs/eval.yaml` (groot) | 체크포인트 `nvidia/GR00T-N1.7-LIBERO` | github…/Isaac-GR00T/blob/main/examples/LIBERO/README.md | 공식 성공률 97.65/97.5/98.45/94.35; HF 중첩 폴더 주의 | 📄 (HF 페이지는 검색 교차확인) |
 
-### 2.4 OpenVLA (`openvla/openvla` + `moojink/openvla-oft`)
+### 2.4 OpenVLA-OFT (`moojink/openvla-oft`) / vanilla (`openvla/openvla`)
 
-| 파일:줄(예정) | 호출 | 근거 URL | 문서상 시그니처 / 사실 | 확인 |
+| 파일:줄 | 호출 | 근거 URL | 문서상 시그니처 / 사실 | 확인 |
 |---|---|---|---|---|
-| `servers/serve_openvla.py` | vanilla 로딩 | github.com/openvla/openvla README | `AutoProcessor.from_pretrained("openvla/openvla-7b", trust_remote_code=True)`; `AutoModelForVision2Seq.from_pretrained(…, attn_implementation="flash_attention_2"(optional), torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True)` | ✅ |
-| `servers/serve_openvla.py` | `predict_action` | raw…/openvla/main/prismatic/extern/hf/modeling_prismatic.py:506 | `def predict_action(self, input_ids=None, unnorm_key: Optional[str] = None, **kwargs) -> np.ndarray` — generate() 래퍼, 비정규화 action 반환(차원은 `get_action_dim(unnorm_key)`), 토큰 29871 자동 보정 | ✅ |
-| `servers/serve_openvla.py` | prompt 포맷 | 동일 README | `"In: What action should the robot take to {<INSTRUCTION>}?\nOut:"` | ✅ |
-| `servers/serve_openvla.py` | openvla-7b의 LIBERO 학습 여부 | README + HF 모델카드 | OXE 970K 트래젝토리 학습, **LIBERO 파인튜닝 아님** → 지시서 §2의 우려대로 그대로 쓰면 불공정 | ✅ (모델카드 원문은 검색 교차확인) |
-| `servers/serve_openvla.py` | OFT 추론 경로 | github.com/moojink/openvla-oft README + LIBERO.md | `get_vla(cfg)`, `get_processor(cfg)`, `get_action_head(cfg, llm_dim=vla.llm_dim)`, `get_proprio_projector(…)`, `get_vla_action(cfg, vla, processor, observation, task_description, action_head, proprio_projector)` → **action chunk**; obs `{"full_image","wrist_image","state","task_description"}`; `use_l1_regression=True, num_images_in_input=2, use_proprio=True, center_crop=True, num_open_loop_steps=NUM_ACTIONS_CHUNK, unnorm_key="libero_spatial_no_noops"`; 평가 스크립트 `experiments/robot/libero/run_libero_eval.py` | ✅ |
-| `servers/serve_openvla.py` | OFT-LIBERO 체크포인트 | LIBERO.md | `moojink/openvla-7b-oft-finetuned-libero-{spatial,object,goal,10}` + 통합 `…-spatial-object-goal-10` (97.1% / 96.8%). 대안: `openvla/openvla-7b-finetuned-libero-{…}` LoRA 체크포인트 | ✅ (HF 페이지는 검색 교차확인) |
-| `setup/40_openvla.sh` | 의존성 | openvla README + openvla-oft SETUP.md | Python 3.10, PyTorch 2.2.*, transformers 4.40.1, flash-attn 2.5.5(`--no-build-isolation`). **OFT는 커스텀 transformers fork 필수**: `github.com/moojink/transformers-openvla-oft.git` | ✅ |
-| `servers/serve_openvla.py` | `unnorm_key` 값 | README + OFT | zero-shot: `"bridge_orig"`; LIBERO fine-tune: `"libero_spatial_no_noops"` 등 suite별 `no_noops` 키 | ✅ |
+| `servers/serve_openvla.py:60-74` | `GenerateConfig(pretrained_checkpoint=…, task_suite_name=…, center_crop=…)` + `initialize_model(cfg)` | raw…/openvla-oft/main/experiments/robot/libero/run_libero_eval.py:81-176 | 기본값 `use_l1_regression=True, num_images_in_input=2, use_proprio=True, center_crop=True, num_open_loop_steps=8`; `initialize_model` → (model, action_head, proprio_projector(proprio_dim=8), noisy_action_projector, processor) + `check_unnorm_key`(`_no_noops` 폴백) | 📄 |
+| `servers/serve_openvla.py:81,93-94` | `get_image_resize_size(cfg)`, `resize_image_for_policy(img, size)` | raw…/main/experiments/robot/robot_utils.py:77 + openvla_utils | openvla family → 224 | 📄 |
+| `servers/serve_openvla.py:98-108` | `get_action(cfg, model, observation, task_label, processor=…, action_head=…, proprio_projector=…, …)` → chunk | robot_utils.py:99-146 | obs = `{"full_image","wrist_image","state","task_description"}`(run_libero_eval.py:243-262와 동일 구성; 이미지는 이미 180도 회전본) | 📄 |
+| `servers/serve_openvla.py:109` | `process_action(a, "openvla")` | run_libero_eval.py:265-275 + robot_utils.py:149-201 | `normalize_gripper_action(binarize=True)` → `invert_gripper_action` (env-ready) | 📄 |
+| `configs/eval.yaml` (oft) | 체크포인트 `moojink/openvla-7b-oft-finetuned-libero-*` | github…/openvla-oft/blob/main/LIBERO.md | 4종 + 통합 1종; 97.1%/96.8% | 📄 (HF 페이지는 검색 교차확인) |
+| `setup/40_openvla.sh` | py3.10 + torch 2.2.0 + transformers fork + flash-attn 2.5.5 + LIBERO 동일 env 설치 | SETUP.md + LIBERO.md("custom transformers v4.40.1 fork … stick to these versions") | §1.6 참조 | 📄 |
+| (참고, 미사용) | vanilla `predict_action` | raw…/openvla/main/prismatic/extern/hf/modeling_prismatic.py:506 + README | `predict_action(self, input_ids=None, unnorm_key=None, **kwargs) -> np.ndarray`; prompt `"In: What action should the robot take to {<INSTRUCTION>}?\nOut:"`; zero-shot `unnorm_key="bridge_orig"` | 📄 |
 
 ---
 
-## 3. §2 URL fetch 체크리스트
+## 3. URL fetch 체크리스트 (지시서 §2 전체 + 추가 소스)
 
 | URL | 상태 |
 |---|---|
-| github.com/Lifelong-Robot-Learning/LIBERO | ✅ 읽음 (+benchmark/__init__.py, env_wrapper.py, libero_suite_task_map.py, configs, metric.py, setup.py) |
-| github.com/Physical-Intelligence/openpi | ✅ 읽음 |
-| …/openpi/blob/main/examples/libero/README.md | ✅ 읽음 (+examples/libero/main.py, compose.yml) |
-| …/openpi/blob/main/src/openpi/training/config.py | ✅ 읽음 (+pi0_config.py, serve_policy.py, openpi-client 소스) |
-| github.com/NVIDIA/Isaac-GR00T | ✅ 읽음 (+gr00t/policy/*, embodiment_tags.py, pyproject.toml, getting_started/*, examples/LIBERO) |
+| github.com/Lifelong-Robot-Learning/LIBERO (+benchmark/__init__.py, env_wrapper.py, libero_suite_task_map.py, metric.py, configs, setup.py, requirements.txt) | 📄 직접 읽음 |
+| github.com/Physical-Intelligence/openpi (+examples/libero/{README,main.py,compose.yml}, training/config.py, models/pi0_config.py, scripts/serve_policy.py, serving/websocket_policy_server.py, openpi-client 소스 전부) | 📄 직접 읽음 |
+| github.com/NVIDIA/Isaac-GR00T (+gr00t/policy/*, eval/run_gr00t_server.py, eval/sim/LIBERO/libero_env.py, data/embodiment_tags.py, pyproject.toml, getting_started/*, examples/LIBERO) | 📄 직접 읽음 |
 | huggingface.co/nvidia/GR00T-N1.7-3B | ⚠️ 직접 fetch 차단 — 존재는 검색 결과의 실제 HF 페이지로 교차 확인 |
-| github.com/openvla/openvla | ✅ 읽음 (+modeling_prismatic.py) |
-| huggingface.co/openvla/openvla-7b | ⚠️ 직접 fetch 차단 — README의 동일 스니펫 + 검색 결과로 교차 확인 |
+| github.com/openvla/openvla (+prismatic/extern/hf/modeling_prismatic.py) | 📄 직접 읽음 |
+| huggingface.co/openvla/openvla-7b | ⚠️ 직접 fetch 차단 — README 동일 스니펫 + 검색 교차 확인 |
+| github.com/moojink/openvla-oft (+SETUP.md, LIBERO.md, run_libero_eval.py, robot_utils.py, libero_utils.py) | 📄 직접 읽음 |
 
-## 4. 남은 TODO(verify) 목록 — 코드 작성 시 주석으로 반영할 것
+## 4. 남은 ⚠️ / TODO(verify) — GPU 환경에서 확인할 것
 
-1. robosuite의 `{camera_name}_image` 키 생성 라인, OSC_POSE action 범위 [-1,1] — robosuite 소스에서 확인 필요.
-2. HF 모델카드 원문(GR00T-N1.7-3B / N1.7-LIBERO / openvla-7b / moojink OFT 체크포인트) — 네트워크 허용 환경에서 직접 확인.
-3. openpi 이슈 #849 원문 — GitHub Issues 열람으로 확인.
-4. GR00T `PolicyClient.get_action`에 넘길 LIBERO obs의 정확한 video/state 키 이름 — `nvidia/GR00T-N1.7-LIBERO` 체크포인트의 processor/modality config를 받아서 확인(체크포인트 다운로드 필요, 이번 범위 밖).
-5. `MUJOCO_GL=osmesa` 폴백 동작 — 어느 공식 문서에도 없음(우리 추가분), 실행 환경에서 확인.
+1. **GR00T obs horizon**(`serve_groot.py --obs-horizon`): N1.7-LIBERO 체크포인트의
+   video/state delta_indices 길이. 서버의 assert 메시지가 기대값을 알려주므로
+   스모크 1회로 확정 가능. (사람이 가장 먼저 확인할 것 #1)
+2. **GR00T-N1.7-LIBERO의 HF 중첩 폴더 로딩**: repo id 직접 로딩 실패 시
+   `scripts/deployment/README.md` 절차. (#2)
+3. **OFT 서버의 `GenerateConfig`/`initialize_model` import가 서빙 프로세스에서
+   그대로 동작하는지**(wandb/tensorflow 등 무거운 모듈 import 포함) — 코드는
+   공식 eval 스크립트와 동일 경로지만 실행은 안 해봄. (#3)
+4. robosuite 유래 사실 2건: `{camera}_image` 키 생성 라인, OSC_POSE 액션 범위.
+5. `MUJOCO_GL=osmesa` 폴백 실동작(공식 문서에 없는 우리 추가 단계).
+6. openpi 이슈 #849 원문(0% 가드레일의 일화적 근거).
+7. HF 모델카드 원문 4건(네트워크 허용 환경에서).

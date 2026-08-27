@@ -1,0 +1,43 @@
+# Per-model client configuration.
+#
+# resize_with_pad: 224 -> the CLIENT resizes images to 224x224 (zero-pad,
+#   bilinear) before sending, replicating openpi's official LIBERO client.
+#   null -> raw 256x256 render is sent; the server does its model's own
+#   resizing (as the GR00T / openvla-oft official harnesses do server-side).
+# replan_steps: how many actions of each returned chunk to execute before
+#   re-querying. 5 = openpi's official client. null = execute the full chunk
+#   (openvla-oft's recommended setting: num_open_loop_steps == chunk length;
+#   GR00T's --execution-horizon analog).
+# All images are rotated 180 degrees client-side — the shared convention of all
+# three official harnesses. Do not change benchmark parameters (max_steps etc.,
+# fixed in client/libero_env.py) — changing them breaks comparability with
+# published numbers.
+
+models:
+  random:
+    host: localhost
+    port: 8000
+    resize_with_pad: 224
+    replan_steps: 5
+    model_source: servers/serve_random.py
+
+  pi05_libero:
+    host: localhost
+    port: 8000
+    resize_with_pad: 224     # openpi examples/libero/main.py resize_size=224
+    replan_steps: 5          # openpi examples/libero/main.py replan_steps=5
+    model_source: gs://openpi-assets/checkpoints/pi05_libero
+
+  groot_n17_libero:
+    host: localhost
+    port: 8600
+    resize_with_pad: null    # GR00T's LIBERO env feeds raw 256px (rotated)
+    replan_steps: null
+    model_source: hf:nvidia/GR00T-N1.7-LIBERO
+
+  openvla_oft_libero:
+    host: localhost
+    port: 8700
+    resize_with_pad: null    # OFT resizes server-side (resize_image_for_policy -> 224)
+    replan_steps: null       # OFT recommends executing the full action chunk
+    model_source: hf:moojink/openvla-7b-oft-finetuned-libero-<suite>
