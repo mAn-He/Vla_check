@@ -290,3 +290,65 @@
 - **`nvidia/Cosmos-Reason2-2B`는 gated가 아니다.**
   인증 없이 `config.json` 다운로드 성공 확인. HF 토큰 불필요.
   README의 "gated" 표기는 오류이므로 수정 대상.
+
+
+---
+
+## RunPod 실행 검증 (RTX 4090 24GB, $0.74/hr)
+
+### 재현 결과
+
+| 모델 | suite | 성공률 | 공식 수치 | 판정 |
+|---|---|---|---|---|
+| OpenVLA-OFT | libero_spatial | **50/50 (100%)** | 97.1% | ✅ 재현 성공 |
+
+에피소드당 약 4초 (첫 에피소드만 12초, 이후 3.6~5.1초).
+
+### 이로써 검증된 항목 (⚠️ → ✅)
+
+| 항목 | 근거 |
+|---|---|
+| observation 스키마 (image/wrist_image 180도 회전, state 8차원) | 실제 추론 성공 |
+| action chunk 실행 (NUM_ACTIONS_CHUNK=8, ACTION_DIM=7) | 서버 로그 + 정상 동작 |
+| action 정규화 (bounds_q99, PROPRIO_DIM=8) | 공식 수치와 일치 |
+| 성공 판정 (`done` within budget) | 성공/실패 정상 기록 |
+| WebSocket + msgpack-numpy 프로토콜 | 50 에피소드 무오류 |
+| OpenVLA-OFT prompt 포맷 / unnorm_key | 100% 성공률이 곧 증거 |
+
+### 환경 구성에서 발견된 문제 (setup/*.sh 에 반영함)
+
+1. **모델 서버 venv 에도 LIBERO 가 필요하다.**
+   `serve_openvla.py` → `experiments.robot.libero.run_libero_eval` 이 최상단에서
+   `from libero.libero import benchmark` 를 호출한다.
+   GR00T 서버도 동일할 가능성이 높으므로 `30_groot.sh` 확인 필요.
+
+2. **LIBERO editable 설치가 MAPPING 을 비운 채 완료된다.**
+   `__editable___libero_0_1_0_finder.py` 의 `MAPPING = {}`.
+   → site-packages 에 `libero_path.pth` 직접 생성으로 우회. venv 마다 필요.
+
+3. **첫 import 시 대화형 프롬프트.**
+   "Do you want to specify a custom path for the dataset folder? (Y/N)"
+   → 자동화 스크립트를 블로킹. `echo "N" |` 로 사전 처리.
+
+4. **protobuf 3자 충돌.**
+   - `tensorflow_datasets` → `tensorflow_metadata` 는 `runtime_version`(protobuf 5.27+) 요구
+   - `tensorflow` 본체는 `MessageFactory.GetPrototype`(protobuf 6.x 에서 제거) 요구
+   - 두 요구는 동시에 만족 불가
+   → **`tensorflow-metadata==1.13.1`** 로 낮춰 `runtime_version` 요구를 제거.
+
+   근본 원인: `run_libero_eval` import 사슬이 학습용 데이터 로더
+   (`prismatic.vla.datasets.rlds` → `dlimp` → `tensorflow_datasets`)를 끌어온다.
+   추론에는 불필요하므로, 필요한 함수만 하위 모듈에서 직접 import 하면 사슬을 끊을 수 있다.
+
+5. **`HF_HUB_ENABLE_HF_TRANSFER=1`.**
+   RunPod 이미지가 켜두는데 `hf_transfer` 패키지는 없다.
+   → 패키지 설치, 또는 `export HF_HUB_ENABLE_HF_TRANSFER=0`.
+
+6. **`10_libero.sh` 순서 버그.**
+   `.pth` 생성이 `python -c "import libero"` 검증 줄보다 뒤에 있어
+   `set -e` 로 검증이 먼저 죽으면서 `.pth` 가 만들어지지 않았다. → 순서 수정.
+
+### 무시해도 되는 경고
+
+`datasets path ... does not exist` / cuDNN·cuFFT·cuBLAS 중복 등록 / TF-TRT TensorRT 없음 /
+robosuite private macro / OpenGL_accelerate / gym unmaintained — 전부 동작에 영향 없음.

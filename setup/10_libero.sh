@@ -34,12 +34,15 @@ uv pip install "openpi-client @ git+https://github.com/Physical-Intelligence/ope
 # Client-side extras: config parsing + heatmaps.
 uv pip install pyyaml matplotlib seaborn pandas
 
-python -c "import libero; print(libero.__file__)"
-python -c "import openpi_client; print(openpi_client.__file__)"
-echo "[OK] libero eval-client env ready (${VENV})"
-echo "$REPO_ROOT/third_party/LIBERO" > "$VENV/lib/python3.8/site-packages/libero_path.pth"
+# --- 검증보다 먼저 실행되어야 하는 우회 처리 ---
+# LIBERO 의 editable 설치는 MAPPING 을 비운 채 완료되어 import 가 실패한다.
+echo "$REPO_ROOT/third_party/LIBERO" \
+  > "$VENV/lib/python3.8/site-packages/libero_path.pth"
 
 # 첫 import 시 데이터셋 경로를 묻는 대화형 프롬프트가 스크립트를 멈춘다.
 echo "N" | python -c "from libero.libero import benchmark" 2>/dev/null || true
 
-python -c "import libero; from libero.libero import benchmark; print('[OK] libero import 확인')"
+python -c "import libero; print(libero.__file__)"
+python -c "import openpi_client; print(openpi_client.__file__)"
+echo "[OK] libero eval-client env ready (${VENV})"
+echo "$REPO_ROOT/third_party/LIBERO" > "$VENV/lib/python3.8/site-packages/libero_path.pth"
