@@ -1,60 +1,98 @@
-# probe — 인지 / 계획 / 제어 3층 비교
+# probe — 같은 입력, 다른 반응
 
 성공률이 97~98%에서 포화되어 모델을 구분하지 못한다.
-이 프로브는 **같은 관측 하나를 얼려놓고** 입력을 조작해, 성공률이 가리는 차이를 드러낸다.
+같은 관측을 두 모델에 먹여 **인지 / 계획 / 제어**가 어떻게 갈리는지 본다.
 
-설계 근거와 각 프로브의 해석 방법은 `DESIGN.md` 참조.
+## 왜 에피소드를 저장해서 재생하는가
+
+롤아웃을 각자 굴리면 모델마다 다른 상태를 지나가므로 **입력 자체가 달라진다.**
+비교가 성립하지 않는다. 그래서 한 번만 굴려 관측을 저장하고,
+그 관측을 모든 모델에 그대로 재생한다.
 
 ## 사용
-
-서버가 이미 떠 있는 상태에서 (평가 때 쓰던 그 서버 그대로):
 
 ```bash
 source .venvs/libero/bin/activate
 
-# 모델별로 한 번씩. 모델당 2분 이내.
-python probe/collect.py --model groot_n17_libero  --suite libero_spatial --task-id 0
-python probe/collect.py --model openvla_oft_libero --suite libero_spatial --task-id 0
+# 1) 에피소드 한 번 굴려서 관측 저장 (아무 모델로나. 서버 떠 있어야 함)
+python probe/dump_episode.py --model groot_n17_libero --suite libero_spatial --task-id 0
 
-# 전부 모이면 한 번에 렌더
-python probe/render.py
+# 2) 모델마다 서버를 바꿔 띄우면서 같은 에피소드를 재생
+python probe/compare.py --episode probe/episodes/libero_spatial_t0_by-groot_n17_libero.npz \
+                        --model groot_n17_libero
+#    (서버 교체 후)
+python probe/compare.py --episode probe/episodes/libero_spatial_t0_by-groot_n17_libero.npz \
+                        --model openvla_oft_libero
+
+# 3) 렌더
+python probe/compare.py --render
 ```
 
-GPU 없이 렌더 파이프라인만 확인하려면:
-```bash
-python probe/render.py --demo
-```
+빠르게 보려면 `--grid 0` (saliency 생략, 30초), 정밀하게는 `--grid 12`.
 
-## 산출물
-
-`probe/figures/` 에 PNG + SVG.
+## 산출물 — probe/compare/figures/
 
 | 파일 | 층 | 읽는 법 |
 |---|---|---|
-| `perception_saliency_<model>` | 인지 | 대상 물체에 집중 vs 배경·팔에 반응 |
-| `perception_camera_reliance` | 인지 | agentview(공간) vs wrist(근접) 의존 |
-| `perception_language_probe` | 인지 | empty/irrelevant ≈ 0 이면 지시를 무시 중 |
-| `planning_intent_3d` | 계획 | 같은 장면에서 접근 경로가 갈리는가 |
-| `planning_language_conditioning` | 계획 | **핵심.** 지시를 바꿔도 궤적이 겹치면 언어 미반영 |
-| `planning_replan_stability` | 계획 | 재계획 시 궤적이 튀는가 |
-| `control_action_timeseries` | 제어 | 7차원 액션 + jerk. 덜컥거림 비교 |
-| `control_noise_sensitivity` | 제어 | 기울기가 가파르면 카메라 노이즈에 취약 |
-| `control_efficiency` | 제어 | **추가 실행 불필요.** 성공 에피소드 평균 스텝 수 |
+| `01_action_disagreement` | 종합 | 에피소드 어느 지점에서 두 모델이 갈리는가 |
+| `02_action_timeseries` | 제어 | 7차원 액션 + jerk. 덜컥거림 비교 |
+| `03_intent_trajectory` | 계획 | 같은 첫 프레임에서 어디로 가려 하는가 |
+| `04_language_probe` | 인지 | empty/irrelevant ≈ 0 이면 지시를 무시 중 |
+| `05_camera_reliance` | 인지 | agentview(공간) vs wrist(근접) 의존 |
+| `06_saliency_<model>` | 인지 | 대상 물체를 보는가, 배경을 보는가 |
 
-## 주의: 이 모델들은 모놀리식이다
+## 주의
 
-GR00T 와 OpenVLA-OFT 는 `(image, state, instruction) -> action chunk` 를 한 번에 낸다.
-인지·계획·제어 모듈이 따로 있는 게 아니다. 세 층은 **구조가 아니라 분석 렌즈**이며,
-각 층을 직접 뜯는 대신 입력 조작에 대한 출력 변화로 간접 관찰한다.
+- 이 모델들은 **모놀리식**이다. 인지·계획·제어 모듈이 따로 없다.
+  세 층은 구조가 아니라 **분석 렌즈**이며, 입력 조작에 대한 출력 변화로 간접 관찰한다.
+- 가림 민감도를 "attention" 이라 부르지 말 것. attention 이 아니라 **출력 민감도**다.
+- 관측 한 장/에피소드 하나의 결과를 일반화하지 말 것. task-id 를 바꿔가며
+  패턴이 반복되는지 확인한 뒤 주장할 것.
+- `target_swap` 은 휴리스틱 치환이라 문장이 어색해질 수 있다.
+  변형된 문장을 그림 캡션에 같이 적을 것. (`lang_variants` 로 저장돼 있다)
+- `configs/eval.yaml` 에서 groot/openvla 는 `resize_with_pad: null` 이므로
+  원본 256px 를 그대로 보낸다. π0.5 를 추가하려면 224 리사이즈가 필요하다.
 
-이 방식의 장점은 모델 내부 구현에 의존하지 않아 **어떤 VLA 에도 똑같이 적용**된다는 것이다.
-π0.5 를 추가해도 서버만 띄우면 같은 프로브가 그대로 돈다.
+---
 
-## 해석 시 하지 말아야 할 것
+## storyboard.py — 사람이 읽는 버전
 
-- 가림 민감도를 "attention" 이라고 부르지 말 것. 그건 attention 이 아니라
-  **출력 민감도**다. 상관은 있지만 같은 것이 아니다.
-- 단일 관측 한 장의 결과를 일반화하지 말 것. task-id 를 여러 개 돌려
-  패턴이 반복되는지 확인한 뒤에 주장할 것.
-- `target_swap` 은 휴리스틱 문자열 치환이라 문장이 어색해질 수 있다.
-  그 자체가 교란 변수이므로, 변형된 지시문을 그림 캡션에 같이 적을 것.
+`compare.py --render` 는 분석용 그림이고, 이쪽은 **한 장에 전부 담은 카드**다.
+
+```bash
+python probe/storyboard.py            # 전체
+python probe/storyboard.py --frame 2  # 특정 프레임만
+```
+
+### story_frame<k>.png — 프레임 한 장의 전말
+
+```
+제목          : frame k / episode step / INSTRUCTION 원문
+윗줄          : SCENE(실제 장면) | WRIST | 모델별 "어디를 봤는가"(saliency)
+아랫줄        : 모델별 계획 경로(위에서 본 것, 색=높이)
+                first action 막대 (이동/회전 6축 + 그리퍼 분리)
+                DECISION — 액션을 말로 푼 것 ("DOWN | gripper OPEN")
+```
+
+두 모델의 경로는 **같은 축 범위**로 그린다. 안 그러면 눈으로 비교가 안 된다.
+
+### story_language.png — 같은 이미지, 다른 지시
+
+행마다 프롬프트 원문을 그대로 적고, 그 프롬프트로 나온 경로를 옆에 놓는다.
+전 행의 경로가 똑같으면 **모델이 텍스트를 안 읽고 있다**는 뜻이다.
+
+`target_swap`(대상 물체를 바꾼 지시)에서 경로가 안 변하는데
+`empty`/`irrelevant`에서는 크게 변한다면 — 지시문의 **유무**는 보지만
+**내용**은 안 본다는 해석이 가능하다.
+
+### story_overview.png — 에피소드 전체 흐름
+
+프레임별로 장면과 모델별 계획을 한 줄씩. 어느 시점에서 갈리는지 훑어볼 때.
+
+### 해석 주의
+
+- saliency 는 attention 이 아니라 **출력 민감도**다. 가렸을 때 행동이 바뀌는 곳일 뿐.
+- LIBERO spatial 은 태스크가 전부 "black bowl 을 plate 에" 변형이라
+  언어 변별이 애초에 덜 필요하다. `libero_object` / `libero_goal` 에서
+  같은 패턴이 반복되는지 확인한 뒤에 주장할 것.
+- 에피소드 하나의 결과를 일반화하지 말 것.

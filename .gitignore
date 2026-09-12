@@ -9,3 +9,10 @@ viz/figures/
 __pycache__/
 *.pyc
 .DS_Store
+.env
+*.log
+probe/episodes/
+probe/compare/
+probe/data/
+probe/figures/
+.ipynb_checkpoints/
