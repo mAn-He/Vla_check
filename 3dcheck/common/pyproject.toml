@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bench3d"
+version = "0.1.0"
+description = "Shared metrics, IO and visualization helpers for 3dcheck"
+requires-python = ">=3.10"
+# Heavy deps (torch, open3d, plotly) come from each env; keep this list minimal.
+dependencies = ["numpy", "pyyaml"]
+
+[tool.setuptools.packages.find]
+include = ["bench3d*"]

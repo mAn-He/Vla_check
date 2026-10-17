@@ -1,0 +1,16 @@
+data/
+third_party/
+.envs/
+results/**
+!results/**/
+!results/**/summary.json
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.engine
+.ipynb_checkpoints/
+__pycache__/
+*.egg-info/
+*.pyc
+.env
