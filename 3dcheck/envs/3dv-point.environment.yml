@@ -1,5 +1,5 @@
 # Conda layer only. Mirrors the toolchain of Pointcept's official environment.yml
-# (python 3.10, CUDA 12.4; gcc 12 instead of 13.2, see below); torch itself comes from PyPI via uv (PyPI torch 2.5.0 = cu124).
+# (python 3.10, CUDA 12.4; gcc 11 instead of 13.2, see below); torch itself comes from PyPI via uv (PyPI torch 2.5.0 = cu124).
 # google-sparsehash (bioconda) from the official file is omitted: not needed by PTv3/Sonata/Concerto.
 name: 3dv-point
 channels:
@@ -20,10 +20,11 @@ dependencies:
   - cuda-nvtx-dev
   - cuda-profiler-api
   - cuda-cccl
-  # Official file uses gcc 13.2 (NVIDIA channel). conda-forge cuda-nvcc 12.4 requires gcc_impl <13,
-  # so gcc 12 here (step 1: 13.2 + cuda-nvcc 12.4 does not solve on conda-forge).
-  - gcc=12
-  - gxx=12
+  # Official file uses gcc 13.2 (NVIDIA channel). On conda-forge, cuda-nvcc 12.4 requires gcc <13, and
+  # gcc 12.4 + the glibc 2.39 sysroot fails in nvcc on stdlib.h `_Float32` (pointops build). gcc 11 builds
+  # (verified in step 1), matching the 3dv env.
+  - gcc=11
+  - gxx=11
   # open3d needs libEGL/libGL; headless images (RunPod, CI) often lack them
   - libegl
   - libgl
