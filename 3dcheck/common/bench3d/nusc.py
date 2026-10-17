@@ -45,9 +45,17 @@ def camera_info(nusc, sd_token: str) -> dict:
     """K, c2w, w2c, width, height, filename for a camera sample_data."""
     sd = nusc.get("sample_data", sd_token)
     c2w = sensor_to_global(nusc, sd_token)
-    return {"sd_token": sd_token, "channel": sd["channel"], "filename": sd["filename"], "timestamp": sd["timestamp"],
-            "K": intrinsic(nusc, sd_token), "c2w": c2w, "w2c": np.linalg.inv(c2w),
-            "width": sd["width"], "height": sd["height"]}
+    return {
+        "sd_token": sd_token,
+        "channel": sd["channel"],
+        "filename": sd["filename"],
+        "timestamp": sd["timestamp"],
+        "K": intrinsic(nusc, sd_token),
+        "c2w": c2w,
+        "w2c": np.linalg.inv(c2w),
+        "width": sd["width"],
+        "height": sd["height"],
+    }
 
 
 def sample_cameras(nusc, sample_token: str, cams=CAMERAS) -> list[dict]:
@@ -72,8 +80,9 @@ def lidar_to_camera(nusc, lidar_sd_token: str, cam_sd_token: str) -> np.ndarray:
     return np.linalg.inv(sensor_to_global(nusc, cam_sd_token)) @ sensor_to_global(nusc, lidar_sd_token)
 
 
-def project_lidar_to_camera(nusc, lidar_sd_token: str, cam_sd_token: str, min_depth: float = 1.0,
-                            points: np.ndarray | None = None) -> dict:
+def project_lidar_to_camera(
+    nusc, lidar_sd_token: str, cam_sd_token: str, min_depth: float = 1.0, points: np.ndarray | None = None
+) -> dict:
     """Project LiDAR points into a camera image.
 
     Returns dict(uv (M,2) float pixel coords, depth (M,), index (M,) into the LiDAR points).
@@ -103,8 +112,14 @@ def sparse_depth_map(uv: np.ndarray, depth: np.ndarray, width: int, height: int)
     return dm
 
 
-def backproject(depth: np.ndarray, K: np.ndarray, stride: int = 1, min_depth: float = 0.1,
-                max_depth: float | None = None, mask: np.ndarray | None = None):
+def backproject(
+    depth: np.ndarray,
+    K: np.ndarray,
+    stride: int = 1,
+    min_depth: float = 0.1,
+    max_depth: float | None = None,
+    mask: np.ndarray | None = None,
+):
     """Dense depth (HxW, metres) -> points in the camera frame. Returns (points (N,3), pixel_idx (N,2) as v,u)."""
     H, W = depth.shape
     vs, us = np.mgrid[0:H:stride, 0:W:stride]

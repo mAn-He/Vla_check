@@ -5,10 +5,9 @@ import math
 
 import numpy as np
 import pytest
-from scipy.spatial.transform import Rotation
-
 from bench3d import align
 from bench3d.metrics import depth, pointcloud, pose, segmentation
+from scipy.spatial.transform import Rotation
 
 RNG = np.random.default_rng(0)
 
@@ -173,21 +172,43 @@ def test_config_and_summaries(tmp_path, monkeypatch):
     (tmp_path / "outdoor").mkdir()
     (tmp_path / "outdoor" / "config.yaml").write_text(
         "profile: mid\nresults_root: results/outdoor\nseed: 0\n"
-        "profiles:\n  mid: {depth: {cams: [CAM_FRONT], stride: 2}}\n  low: {depth: {stride: 4}}\n")
+        "profiles:\n  mid: {depth: {cams: [CAM_FRONT], stride: 2}}\n  low: {depth: {stride: 4}}\n"
+    )
     monkeypatch.setenv("THREEDCHECK_ROOT", str(tmp_path))
     cfg = load_config("outdoor", profile="low")
     assert cfg.p["depth"] == {"cams": ["CAM_FRONT"], "stride": 4}  # low inherits from mid
     d = result_dir(cfg, "02_monocular_depth", "m1")
-    save_summary(d, part="outdoor", notebook="02_monocular_depth", profile=cfg["profile"], model="m1",
-                 metrics={"abs_rel": np.float32(0.1), "rmse": math.nan}, runtime_s=1.0, peak_vram_mb=None,
-                 checkpoint="x", packages={}, seed=0)
+    save_summary(
+        d,
+        part="outdoor",
+        notebook="02_monocular_depth",
+        profile=cfg["profile"],
+        model="m1",
+        metrics={"abs_rel": np.float32(0.1), "rmse": math.nan},
+        runtime_s=1.0,
+        peak_vram_mb=None,
+        checkpoint="x",
+        packages={},
+        seed=0,
+    )
     rec = json.loads((d / "summary.json").read_text())
     assert rec["metrics"]["rmse"] is None and rec["schema"] == 1
     df = collect_summaries(cfg.path("results"))
     assert set(df["metric"]) == {"abs_rel", "rmse"}
     with pytest.raises(ValueError):
-        save_summary(d, part="outdoor", notebook="x", profile="mid", model="m", metrics={"bins": {}},
-                     runtime_s=0, peak_vram_mb=0, checkpoint="", packages={}, seed=0)
+        save_summary(
+            d,
+            part="outdoor",
+            notebook="x",
+            profile="mid",
+            model="m",
+            metrics={"bins": {}},
+            runtime_s=0,
+            peak_vram_mb=0,
+            checkpoint="",
+            packages={},
+            seed=0,
+        )
 
 
 def test_write_custom_splits(tmp_path):

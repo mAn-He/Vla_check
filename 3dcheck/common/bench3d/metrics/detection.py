@@ -38,9 +38,16 @@ def _filtered_eval_cls():
     return FilteredDetectionEval
 
 
-def evaluate_detection(nusc, result_path: str | Path, eval_set: str, output_dir: str | Path,
-                       fov_cams: tuple[str, ...] | None = None, dist_range: tuple[float, float] | None = None,
-                       config_name: str = "detection_cvpr_2019", verbose: bool = False) -> dict:
+def evaluate_detection(
+    nusc,
+    result_path: str | Path,
+    eval_set: str,
+    output_dir: str | Path,
+    fov_cams: tuple[str, ...] | None = None,
+    dist_range: tuple[float, float] | None = None,
+    config_name: str = "detection_cvpr_2019",
+    verbose: bool = False,
+) -> dict:
     """Run nuScenes detection eval. Returns flat headline numbers plus per-class APs and TP errors.
 
     fov_cams:   keep only boxes whose center is inside the image of at least one of these cameras
@@ -63,8 +70,15 @@ def evaluate_detection(nusc, result_path: str | Path, eval_set: str, output_dir:
 
     use_filter = fov_cams is not None or dist_range is not None
     Eval = _filtered_eval_cls()
-    ev = Eval(nusc, config=config_factory(config_name), result_path=str(result_path), eval_set=eval_set,
-              output_dir=str(output_dir), verbose=verbose, keep_box=keep if use_filter else None)
+    ev = Eval(
+        nusc,
+        config=config_factory(config_name),
+        result_path=str(result_path),
+        eval_set=eval_set,
+        output_dir=str(output_dir),
+        verbose=verbose,
+        keep_box=keep if use_filter else None,
+    )
     metrics, _ = ev.evaluate()
     s = metrics.serialize()
     n_gt = sum(len(ev.gt_boxes[t]) for t in ev.gt_boxes.sample_tokens)
@@ -77,4 +91,3 @@ def evaluate_detection(nusc, result_path: str | Path, eval_set: str, output_dir:
         "fov_cams": list(fov_cams) if fov_cams else None,
         "dist_range": list(dist_range) if dist_range else None,
     }
-

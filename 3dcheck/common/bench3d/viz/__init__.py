@@ -12,7 +12,9 @@ def model_colors(models: list[str]) -> dict[str, str]:
     return {m: PALETTE[i % len(PALETTE)] for i, m in enumerate(models)}
 
 
-def colorize(values: np.ndarray, vmin: float | None = None, vmax: float | None = None, cmap: str = "turbo") -> np.ndarray:
+def colorize(
+    values: np.ndarray, vmin: float | None = None, vmax: float | None = None, cmap: str = "turbo"
+) -> np.ndarray:
     """Map scalars to RGB uint8 (N,3) or (H,W,3)."""
     import matplotlib
 
@@ -24,8 +26,15 @@ def colorize(values: np.ndarray, vmin: float | None = None, vmax: float | None =
     return (rgb * 255).astype(np.uint8)
 
 
-def overlay_points(ax, image: np.ndarray, uv: np.ndarray, values: np.ndarray, vmax: float = 60.0, s: float = 1.0,
-                   title: str | None = None):
+def overlay_points(
+    ax,
+    image: np.ndarray,
+    uv: np.ndarray,
+    values: np.ndarray,
+    vmax: float = 60.0,
+    s: float = 1.0,
+    title: str | None = None,
+):
     """Image with projected points colored by `values` (e.g. depth)."""
     ax.imshow(image)
     sc = ax.scatter(uv[:, 0], uv[:, 1], c=np.clip(values, 0, vmax), s=s, cmap="turbo", vmin=0, vmax=vmax, linewidths=0)
@@ -43,8 +52,15 @@ def depth_panel(ax, depth: np.ndarray, vmax: float = 60.0, title: str | None = N
     return im
 
 
-def bev(ax, points: np.ndarray, extent: float = 50.0, color=None, s: float = 0.2, label: str | None = None,
-        boxes_xy: list[np.ndarray] | None = None):
+def bev(
+    ax,
+    points: np.ndarray,
+    extent: float = 50.0,
+    color=None,
+    s: float = 0.2,
+    label: str | None = None,
+    boxes_xy: list[np.ndarray] | None = None,
+):
     """Bird's-eye view scatter in the ego/LiDAR frame (x forward, y left). boxes_xy: list of (4,2) corners."""
     pts = np.asarray(points)
     m = (np.abs(pts[:, 0]) < extent) & (np.abs(pts[:, 1]) < extent)
@@ -59,7 +75,9 @@ def bev(ax, points: np.ndarray, extent: float = 50.0, color=None, s: float = 0.2
     ax.set_ylabel("y [m]")
 
 
-def plotly_points(clouds: dict[str, np.ndarray], max_points: int = 60000, size: float = 1.5, colors: dict | None = None):
+def plotly_points(
+    clouds: dict[str, np.ndarray], max_points: int = 60000, size: float = 1.5, colors: dict | None = None
+):
     """Interactive 3D scatter of several named clouds (each subsampled to max_points)."""
     import plotly.graph_objects as go
 
@@ -70,8 +88,16 @@ def plotly_points(clouds: dict[str, np.ndarray], max_points: int = 60000, size: 
         pts = np.asarray(pts)
         if len(pts) > max_points:
             pts = pts[rng.choice(len(pts), max_points, replace=False)]
-        traces.append(go.Scatter3d(x=pts[:, 0], y=pts[:, 1], z=pts[:, 2], mode="markers", name=name,
-                                   marker={"size": size, "color": colors.get(name)}))
+        traces.append(
+            go.Scatter3d(
+                x=pts[:, 0],
+                y=pts[:, 1],
+                z=pts[:, 2],
+                mode="markers",
+                name=name,
+                marker={"size": size, "color": colors.get(name)},
+            )
+        )
     fig = go.Figure(traces)
     fig.update_layout(scene={"aspectmode": "data"}, height=650, margin={"l": 0, "r": 0, "t": 30, "b": 0})
     return fig

@@ -1,0 +1,11 @@
+line-length = 120
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "W", "B", "I", "SIM", "BLE", "ISC", "S102"]
+ignore = ["SIM108", "B905"]
+
+[lint.per-file-ignores]
+# notebook sources: last-expression display, imports placed in later cells, IPython builtins
+"*/notebooks/src/*.py" = ["B018", "E402", "F821", "E501"]
+"common/tests/*.py" = ["E731"]

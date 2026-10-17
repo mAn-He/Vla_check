@@ -24,8 +24,9 @@ def nn_distance(src: np.ndarray, dst: np.ndarray) -> np.ndarray:
     return d
 
 
-def reconstruction_metrics(pred: np.ndarray, gt: np.ndarray, taus=(0.25, 0.5, 1.0), voxel: float = 0.0,
-                           trunc: float | None = None) -> dict:
+def reconstruction_metrics(
+    pred: np.ndarray, gt: np.ndarray, taus=(0.25, 0.5, 1.0), voxel: float = 0.0, trunc: float | None = None
+) -> dict:
     """accuracy = mean d(pred->gt), completeness = mean d(gt->pred), chamfer = their mean,
     precision/recall/fscore@tau (Knapitsch et al. 2017).
 

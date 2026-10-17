@@ -23,7 +23,9 @@ def iou_from_confusion(conf: np.ndarray, class_names: list[str] | None = None) -
     with np.errstate(divide="ignore", invalid="ignore"):
         iou = np.where(denom > 0, tp / denom, np.nan)
     names = class_names or [str(i) for i in range(len(iou))]
-    out = {"miou": float(np.nanmean(iou)) if np.isfinite(iou).any() else float("nan"),
-           "overall_acc": float(tp.sum() / conf.sum()) if conf.sum() else float("nan")}
+    out = {
+        "miou": float(np.nanmean(iou)) if np.isfinite(iou).any() else float("nan"),
+        "overall_acc": float(tp.sum() / conf.sum()) if conf.sum() else float("nan"),
+    }
     out["per_class_iou"] = {n: (None if np.isnan(v) else float(v)) for n, v in zip(names, iou)}
     return out

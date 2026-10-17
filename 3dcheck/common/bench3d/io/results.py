@@ -59,9 +59,21 @@ def _clean(v):
     return v
 
 
-def save_summary(out_dir: str | Path, *, part: str, notebook: str, profile: str, variant: str = "", extra: dict | None = None,
-                 filename: str = "summary.json", **fields) -> Path:
-    """Write summary.json. Required keyword fields: model, metrics, runtime_s, peak_vram_mb, checkpoint, packages, seed."""
+def save_summary(
+    out_dir: str | Path,
+    *,
+    part: str,
+    notebook: str,
+    profile: str,
+    variant: str = "",
+    extra: dict | None = None,
+    filename: str = "summary.json",
+    **fields,
+) -> Path:
+    """Write summary.json.
+
+    Required keyword fields: model, metrics, runtime_s, peak_vram_mb, checkpoint, packages, seed.
+    """
     missing = [k for k in _REQUIRED if k not in fields]
     if missing:
         raise ValueError(f"summary missing fields: {missing}")
@@ -96,8 +108,10 @@ def collect_summaries(results_root: str | Path, pattern: str = "**/summary*.json
     rows = []
     for f in sorted(Path(results_root).glob(pattern)):
         s = load_summary(f)
-        base = {k: s.get(k) for k in ("part", "notebook", "model", "variant", "profile", "runtime_s", "peak_vram_mb",
-                                       "checkpoint")}
+        base = {
+            k: s.get(k)
+            for k in ("part", "notebook", "model", "variant", "profile", "runtime_s", "peak_vram_mb", "checkpoint")
+        }
         base["file"] = str(f)
         for name, val in s.get("metrics", {}).items():
             rows.append({**base, "metric": name, "value": val})

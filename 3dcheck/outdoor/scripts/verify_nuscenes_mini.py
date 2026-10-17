@@ -82,15 +82,19 @@ def main():
         lidar_tokens = [s["data"]["LIDAR_TOP"] for s in nusc.sample]
         seg_tokens = {rec["sample_data_token"] for rec in nusc.lidarseg}
         missing = [t for t in lidar_tokens if t not in seg_tokens]
-        r.check(not missing, "every keyframe LIDAR_TOP has a lidarseg record", f"missing {len(missing)}/{len(lidar_tokens)}")
+        r.check(
+            not missing, "every keyframe LIDAR_TOP has a lidarseg record", f"missing {len(missing)}/{len(lidar_tokens)}"
+        )
         for rec in nusc.lidarseg[: args.n_label_checks]:
             sd = nusc.get("sample_data", rec["sample_data_token"])
             pts = np.fromfile(data_root / sd["filename"], dtype=np.float32)
             labels = np.fromfile(data_root / rec["filename"], dtype=np.uint8)
             # nuScenes lidar .bin stores 5 float32 per point (devkit LidarPointCloud.from_file reshapes to (-1, 5))
-            if not r.check(pts.size % 5 == 0 and labels.size == pts.size // 5,
-                           f"label count == point count ({Path(rec['filename']).name})",
-                           f"{labels.size} vs {pts.size / 5:g}"):
+            if not r.check(
+                pts.size % 5 == 0 and labels.size == pts.size // 5,
+                f"label count == point count ({Path(rec['filename']).name})",
+                f"{labels.size} vs {pts.size / 5:g}",
+            ):
                 break
         else:
             print(f"        ({min(args.n_label_checks, len(nusc.lidarseg))} files size-checked)")

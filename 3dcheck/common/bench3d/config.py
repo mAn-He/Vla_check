@@ -51,7 +51,11 @@ class Config(dict):
 
     def third_party(self, name: str = "") -> Path:
         """Pinned upstream repos (envs/third_party.lock); $THIRD_PARTY overrides the config value."""
-        base = Path(os.environ["THIRD_PARTY"]) if os.environ.get("THIRD_PARTY") else self.path(self.get("third_party", "third_party"))
+        base = (
+            Path(os.environ["THIRD_PARTY"])
+            if os.environ.get("THIRD_PARTY")
+            else self.path(self.get("third_party", "third_party"))
+        )
         return base / name if name else base
 
 

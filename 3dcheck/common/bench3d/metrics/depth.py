@@ -22,8 +22,9 @@ def _valid(pred, gt, mask, min_depth, max_depth):
     return pred[m], gt[m]
 
 
-def depth_metrics(pred, gt, mask=None, min_depth: float = 1e-3, max_depth: float | None = None,
-                  clip_pred: bool = True) -> dict:
+def depth_metrics(
+    pred, gt, mask=None, min_depth: float = 1e-3, max_depth: float | None = None, clip_pred: bool = True
+) -> dict:
     """AbsRel, SqRel, RMSE, RMSE_log, delta<1.25^k, plus n (valid pixels).
 
     clip_pred clamps predictions to >= min_depth so log / ratio terms stay finite.
@@ -63,8 +64,9 @@ def binned_depth_metrics(pred, gt, mask=None, bins=DEFAULT_BINS, **kw) -> dict[s
     return out
 
 
-def error_vs_distance(pred, gt, mask=None, n_bins: int = 20, d_min: float = 2.0, d_max: float = 80.0,
-                      min_count: int = 50) -> dict:
+def error_vs_distance(
+    pred, gt, mask=None, n_bins: int = 20, d_min: float = 2.0, d_max: float = 80.0, min_count: int = 50
+) -> dict:
     """Mean absolute error per log-spaced distance bin and a power-law fit |err| ~ c * d^k.
 
     k ~= 2 is the stereo-triangulation scaling (error grows with distance squared); a monocular
@@ -86,5 +88,10 @@ def error_vs_distance(pred, gt, mask=None, n_bins: int = 20, d_min: float = 2.0,
         k, logc = np.polyfit(np.log(centers[ok]), np.log(errs[ok]), 1)
     else:
         k, logc = math.nan, math.nan
-    return {"centers": centers.tolist(), "mean_abs_err": errs.tolist(), "counts": counts,
-            "slope_k": float(k), "intercept_logc": float(logc)}
+    return {
+        "centers": centers.tolist(),
+        "mean_abs_err": errs.tolist(),
+        "counts": counts,
+        "slope_k": float(k),
+        "intercept_logc": float(logc),
+    }
