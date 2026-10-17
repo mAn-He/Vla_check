@@ -1,5 +1,6 @@
 # Outdoor (nuScenes-mini) config. Paths are relative to the 3dcheck/ root.
-# Model / profile sections are added in step 2 together with the notebooks.
+# Every value marked "official" was read from the upstream repo at the commit pinned in envs/third_party.lock
+# (see docs/step0_research.md). Profile values (frame counts, resolutions, iterations) are our choices.
 
 dataset:
   name: nuscenes
@@ -14,6 +15,168 @@ splits:
   probe6: [scene-0061, scene-0655, scene-0757, scene-1077, scene-1094, scene-1100]
   mini_val_official: [scene-0103, scene-0916]
 
-profile: mid        # low (<=8GB) | mid (12-16GB, RTX 3060 12GB) | high (24GB+, RunPod)
+profile: mid        # low (<=8GB) | mid (12-16GB, RTX 3060 12GB) | high (24GB+, RunPod). $THREEDCHECK_PROFILE overrides.
 seed: 0
 results_root: results/outdoor
+third_party: third_party            # pinned repos; $THIRD_PARTY overrides
+force_rerun: false                  # notebooks also expose FORCE_RERUN at the top
+
+# ---------------------------------------------------------------- models (official ids / paths)
+models:
+  depth:
+    dav2_metric_vkitti:             # Depth-Anything-V2/metric_depth/README.md
+      hf_repo: depth-anything/Depth-Anything-V2-Metric-VKITTI-{size}   # size: Small | Base | Large
+      filename: depth_anything_v2_metric_vkitti_{encoder}.pth           # encoder: vits | vitb | vitl
+      max_depth: 80                 # outdoor value; the code default is 20 (indoor) -> must be passed
+      input_size: 518
+      output: metric
+    da3_metric_large:               # Depth-Anything-3/README.md
+      hf_repo: depth-anything/DA3METRIC-LARGE
+      output: metric_focal          # metric = focal_px * raw / 300 (README FAQ, utils/alignment.py)
+    da3_nested_giant_large:
+      hf_repo: depth-anything/DA3NESTED-GIANT-LARGE-1.1
+      output: metric                # already metres
+    da3_mono_large:
+      hf_repo: depth-anything/DA3MONO-LARGE
+      output: relative              # evaluated after per-image median scaling
+  multiview:
+    dust3r:                         # dust3r/README.md, dust3r/demo.py defaults
+      hf_repo: naver/DUSt3R_ViTLarge_BaseDecoder_512_dpt
+      image_size: 512
+      scene_graph: complete
+      global_alignment: {init: mst, schedule: linear, lr: 0.01}          # niter per profile
+      min_conf_thr: 3.0
+    mast3r:                         # mast3r/README.md, mast3r/demo.py defaults
+      hf_repo: naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric
+      image_size: 512
+      scene_graph: complete
+      sparse_ga: {lr1: 0.07, lr2: 0.01, optim_level: refine+depth, matching_conf_thr: 0.0, shared_intrinsics: false}
+    vggt:                           # vggt/README.md
+      hf_repo: facebook/VGGT-1B
+      preprocess_mode: crop         # width -> 518, sides divisible by 14
+    da3_anyview:
+      hf_repo: depth-anything/DA3-LARGE-1.1
+      process_res: 504              # api.py default
+  detection:                        # mmdetection3d configs/*/metafile.yml, projects/BEVFusion/README.md
+    pointpillars:
+      config: configs/pointpillars/pointpillars_hv_fpn_sbn-all_8xb4-2x_nus-3d.py
+      checkpoint: https://download.openmmlab.com/mmdetection3d/v1.0.0_models/pointpillars/hv_pointpillars_fpn_sbn-all_4x8_2x_nus-3d/hv_pointpillars_fpn_sbn-all_4x8_2x_nus-3d_20210826_104936-fca299c1.pth
+      reported: {mAP: 39.71, NDS: 53.15}
+      sweeps: 10
+      modality: lidar
+    centerpoint:
+      config: configs/centerpoint/centerpoint_voxel0075_second_secfpn_head-circlenms_8xb4-cyclic-20e_nus-3d.py
+      checkpoint: https://download.openmmlab.com/mmdetection3d/v1.0.0_models/centerpoint/centerpoint_0075voxel_second_secfpn_circlenms_4x8_cyclic_20e_nus/centerpoint_0075voxel_second_secfpn_circlenms_4x8_cyclic_20e_nus_20220810_011659-04cb3a3b.pth
+      reported: {mAP: 56.54, NDS: 65.17}
+      sweeps: 9
+      modality: lidar
+    bevfusion:
+      config: projects/BEVFusion/configs/bevfusion_lidar-cam_voxel0075_second_secfpn_8xb4-cyclic-20e_nus-3d.py
+      checkpoint: https://download.openmmlab.com/mmdetection3d/v1.1.0_models/bevfusion/bevfusion_lidar-cam_voxel0075_second_secfpn_8xb4-cyclic-20e_nus-3d-5239b1af.pth
+      reported: {mAP: 68.6, NDS: 71.4}
+      sweeps: 9
+      modality: lidar+camera
+    fcos3d:
+      config: configs/fcos3d/fcos3d_r101-caffe-dcn_fpn_head-gn_8xb2-1x_nus-mono3d_finetune.py
+      checkpoint: https://download.openmmlab.com/mmdetection3d/v0.1.0_models/fcos3d/fcos3d_r101_caffe_fpn_gn-head_dcn_2x8_1x_nus-mono3d_finetune/fcos3d_r101_caffe_fpn_gn-head_dcn_2x8_1x_nus-mono3d_finetune_20210717_095645-8d806dc2.pth
+      reported: {mAP: 32.1, NDS: 39.3}
+      sweeps: 0
+      modality: camera
+  point:
+    concerto_outdoor:               # Pointcept/Concerto README + concerto/model.py
+      hf_repo: Pointcept/Concerto
+      name: concerto_large_outdoor
+      pointcept_config: configs/concerto/semseg-ptv3-large-v1m1-nuscenes-5a-lin.py
+    ptv3_nuscenes:                  # PointTransformerV3 README model zoo ("temporarily invalid", trained for v1.5.1)
+      hf_repo: Pointcept/PointTransformerV3
+      hf_subdir: nuscenes-semseg-pt-v3m1-0-base
+      pointcept_config: configs/nuscenes/semseg-pt-v3m1-0-base.py
+      pointcept_checkout: Pointcept-v1.5.1
+    sonata:                         # facebookresearch/sonata README (indoor-only pretraining)
+      hf_repo: facebook/sonata
+      name: sonata
+  recon:                            # nerfstudio 1.1.5 method names
+    methods: [nerfacto, instant-ngp, splatfacto]
+    dataparser: nuscenes-data       # nerfstudio/data/dataparsers/nuscenes_dataparser.py
+    camera: FRONT                   # parser accepts FRONT, FRONT_LEFT, ... (single camera only)
+    train_split_fraction: 0.9       # parser default
+
+# Pseudo-LiDAR input for detection/segmentation is chosen in 04 from the 02 results;
+# set explicitly here to override (model id from models.depth).
+pseudo_lidar_source: null
+
+# ---------------------------------------------------------------- hardware profiles
+# low inherits every key it does not set from mid (bench3d.config.load_config deep-merges).
+profiles:
+  mid:                              # RTX 3060 12GB
+    depth:
+      models: [dav2_metric_vkitti, da3_metric_large, da3_mono_large]
+      dav2_encoder: vitl
+      cams: [CAM_FRONT, CAM_FRONT_LEFT, CAM_FRONT_RIGHT, CAM_BACK, CAM_BACK_LEFT, CAM_BACK_RIGHT]
+      sample_stride: 2              # every 2nd keyframe of the eval4 scenes
+      max_eval_depth: 80
+    multiview:
+      models: [dust3r, mast3r, vggt, da3_anyview]
+      n_frames: 10                  # consecutive CAM_FRONT keyframes per window
+      windows_per_scene: 1
+      surround: true                # extra run: 6 cameras of one sample
+      dust3r_niter: 300
+      mast3r_niter1: 300
+      mast3r_niter2: 300
+      crop_max_depth: 50            # GT/pred clouds cropped to input frustums within this range
+      voxel: 0.2                    # density equalization before Chamfer
+    pseudo_lidar:
+      cams: [CAM_FRONT, CAM_FRONT_LEFT, CAM_FRONT_RIGHT, CAM_BACK, CAM_BACK_LEFT, CAM_BACK_RIGHT]
+      pixel_stride: 4
+      max_depth: 60
+    detection:
+      models: [pointpillars, centerpoint, bevfusion, fcos3d]
+      fov_cams: [CAM_FRONT, CAM_FRONT_LEFT, CAM_FRONT_RIGHT, CAM_BACK, CAM_BACK_LEFT, CAM_BACK_RIGHT]
+      dist_bins: [[0, 20], [20, 30], [30, 50]]
+    point:
+      pointnet_epochs: 30
+      pointnet_points: 256
+      probe_epochs: 20
+      probe_batch_size: 2
+      enable_flash: true            # needs flash-attn (FLASH_ATTN=1); set false otherwise
+    recon:
+      max_num_iterations: 15000
+      downscale: 2
+    edge:
+      max_pillars: 40000            # PointPillars nuScenes test-time max_voxels
+      warmup: 20
+      iters: 100
+  low:                              # <=8GB (RTX 3060 laptop 6GB)
+    depth:
+      models: [dav2_metric_vkitti, da3_metric_large, da3_mono_large]
+      dav2_encoder: vitb
+      cams: [CAM_FRONT]
+      sample_stride: 4
+    multiview:
+      models: [dust3r, mast3r, vggt]
+      n_frames: 6
+      surround: false
+      dust3r_niter: 200
+    pseudo_lidar:
+      cams: [CAM_FRONT]
+    detection:
+      models: [pointpillars, centerpoint, fcos3d]
+      fov_cams: [CAM_FRONT]
+    point:
+      probe_batch_size: 1
+      enable_flash: false
+    recon:
+      max_num_iterations: 7000
+      downscale: 4
+  high:                             # 24GB+ (RunPod)
+    depth:
+      models: [dav2_metric_vkitti, da3_metric_large, da3_mono_large, da3_nested_giant_large]
+      sample_stride: 1
+    multiview:
+      n_frames: 20
+      windows_per_scene: 2
+    point:
+      probe_batch_size: 4
+    recon:
+      max_num_iterations: 30000
+      downscale: 1
