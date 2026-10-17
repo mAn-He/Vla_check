@@ -11,7 +11,7 @@ set -euo pipefail
 
 ENVS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$ENVS_DIR/.." && pwd)"
-THIRD_PARTY="${THIRD_PARTY:-$ROOT_DIR/third_party}"
+export THIRD_PARTY="${THIRD_PARTY:-$ROOT_DIR/third_party}"
 REGISTER_KERNEL="${REGISTER_KERNEL:-1}"
 
 log() { printf '\n\033[1;34m[%s]\033[0m %s\n' "$(date +%H:%M:%S)" "$*"; }

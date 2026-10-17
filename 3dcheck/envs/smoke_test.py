@@ -10,13 +10,22 @@ import argparse
 import importlib
 import importlib.metadata
 import json
+import os
 import platform
 import sys
 import time
 import traceback
 import warnings
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
+
+
+THIRD_PARTY = Path(os.environ.get("THIRD_PARTY", Path(__file__).resolve().parents[1] / "third_party"))
+
+
+class Skip(Exception):
+    """Optional component that was not built; reported as SKIP, not as a failure."""
 
 
 def _ver(mod_name):
@@ -40,6 +49,27 @@ def _numpy_below_2():
     import numpy
 
     assert int(numpy.__version__.split(".")[0]) < 2, numpy.__version__
+
+
+def _bevfusion_ops():
+    root = THIRD_PARTY / "mmdetection3d"
+    if not list((root / "projects/BEVFusion/bevfusion/ops/bev_pool").glob("bev_pool_ext*.so")):
+        raise Skip("not built (BUILD_EXT=1)")
+    sys.path.insert(0, str(root))
+    import projects.BEVFusion.bevfusion  # noqa: F401  (registers BEVFusion modules)
+    from mmdet3d.registry import MODELS
+    from projects.BEVFusion.bevfusion.ops.bev_pool import bev_pool_ext  # noqa: F401
+    from projects.BEVFusion.bevfusion.ops.voxel import voxel_layer  # noqa: F401
+
+    assert "BEVFusion" in MODELS.module_dict, "BEVFusion not registered"
+
+
+def _curope():
+    croco = THIRD_PARTY / "mast3r/dust3r/croco"
+    if not list((croco / "models/curope").glob("curope*.so")):
+        raise Skip("not built (BUILD_EXT=1)")
+    sys.path.insert(0, str(croco))
+    from models.curope import cuRoPE2D  # noqa: F401
 
 
 # (label, module for version, python statement to exec)
@@ -66,6 +96,8 @@ CHECKS = {
         ("Depth Anything 3", None, "from depth_anything_3.api import DepthAnything3"),
         ("Depth Anything V2 (metric)", None, "from depth_anything_v2.dpt import DepthAnythingV2"),
         ("bench3d", "bench3d", "import bench3d"),
+        ("BEVFusion ops (opt.)", None, _bevfusion_ops),
+        ("DUSt3R curope (opt.)", None, _curope),
     ],
     "3dv-point": [
         ("torch", "torch", "import torch"),
@@ -95,6 +127,8 @@ def main():
         try:
             stmt() if callable(stmt) else exec(stmt, {})  # noqa: S102 - constant import strings
             ok, err = True, ""
+        except Skip as e:
+            ok, err = None, str(e)
         except Exception as e:  # noqa: BLE001 - report every failure, keep going
             ok = False
             err = f"{type(e).__name__}: {e}".splitlines()[0][:160]
@@ -120,10 +154,11 @@ def main():
     print(f"\nenv={args.env}  python={platform.python_version()}  {cuda}")
     w = max(len(r["check"]) for r in rows)
     for r in rows:
-        mark = "PASS" if r["ok"] else "FAIL"
+        mark = {True: "PASS", False: "FAIL", None: "SKIP"}[r["ok"]]
         print(f"  {mark}  {r['check']:<{w}}  {r['version']:<14} {r['error']}")
-    n_fail = sum(not r["ok"] for r in rows)
-    print(f"{len(rows) - n_fail}/{len(rows)} passed")
+    n_fail = sum(r["ok"] is False for r in rows)
+    n_skip = sum(r["ok"] is None for r in rows)
+    print(f"{len(rows) - n_fail - n_skip}/{len(rows)} passed, {n_skip} skipped (optional, not built)")
 
     if args.json:
         with open(args.json, "w") as f:

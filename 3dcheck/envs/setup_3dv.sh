@@ -57,7 +57,9 @@ add_pth "$PY" 3dcheck_3dv_src.pth \
 if [[ "$BUILD_EXT" == "1" ]]; then
   cuda_env "$PREFIX"
   log "optional ext: BEVFusion ops (arch $TORCH_CUDA_ARCH_LIST)"
-  (cd "$THIRD_PARTY/mmdetection3d" && "$PY" projects/BEVFusion/setup.py develop)
+  # Upstream README says `setup.py develop`; with setuptools>=80 that turns into an isolated
+  # `pip install -e .` of the whole repo root (fails: no torch). build_ext --inplace produces the same .so files.
+  (cd "$THIRD_PARTY/mmdetection3d" && "$PY" projects/BEVFusion/setup.py build_ext --inplace)
   log "optional ext: DUSt3R curope"
   (cd "$THIRD_PARTY/mast3r/dust3r/croco/models/curope" && "$PY" setup.py build_ext --inplace)
   if [[ "$BUILD_TCNN" == "1" ]]; then
