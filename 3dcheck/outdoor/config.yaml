@@ -122,6 +122,8 @@ profiles:
       cams: [CAM_FRONT, CAM_FRONT_LEFT, CAM_FRONT_RIGHT, CAM_BACK, CAM_BACK_LEFT, CAM_BACK_RIGHT]
       sample_stride: 2              # every 2nd keyframe of the eval4 scenes
       max_eval_depth: 80
+      occlusion_window: [7, 15]     # (rows, cols) for the secondary GT occlusion filter in 02 (our heuristic)
+      occlusion_rel: 0.10           # drop a GT point >10% farther than the nearest GT point in its window
     multiview:
       models: [dust3r, mast3r, vggt, da3_anyview]
       n_frames: 10                  # consecutive CAM_FRONT keyframes per window
