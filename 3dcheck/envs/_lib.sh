@@ -85,6 +85,8 @@ cuda_env() {
   # conda-forge CUDA 12 puts headers under targets/; torch.utils.cpp_extension only looks in $CUDA_HOME/include
   export CPATH="$prefix/targets/x86_64-linux/include${CPATH:+:$CPATH}"
   export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.6}"   # RTX 3060 = sm86
+  # mmcv-style setup.py files fall back to CPU-only builds when no GPU is visible (e.g. docker build)
+  export FORCE_CUDA=1
 }
 
 register_kernel() {

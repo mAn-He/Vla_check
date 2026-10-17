@@ -7,6 +7,7 @@
 #                Set to "" to build mmcv from the PyPI sdist instead (slow; CPU ops only without a GPU).
 #   BUILD_EXT    1 = also build optional CUDA extensions (BEVFusion ops, DUSt3R curope, tiny-cuda-nn).
 #                Needs nvcc from the env; set TORCH_CUDA_ARCH_LIST if not building for sm86.
+#   BUILD_TCNN   defaults to BUILD_EXT; set 0 to skip the (slow) tiny-cuda-nn build.
 #   plus the variables documented in _lib.sh (CONDA_FRONTEND, ENV_PREFIX, THIRD_PARTY, REGISTER_KERNEL)
 
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
@@ -14,6 +15,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 NAME=3dv
 MMCV_INDEX="${MMCV_INDEX-https://download.openmmlab.com/mmcv/dist/cu121/torch2.1/index.html}"
 BUILD_EXT="${BUILD_EXT:-0}"
+BUILD_TCNN="${BUILD_TCNN:-$BUILD_EXT}"
 C="$ENVS_DIR/3dv.constraints.txt"
 
 pick_frontend
@@ -58,9 +60,11 @@ if [[ "$BUILD_EXT" == "1" ]]; then
   (cd "$THIRD_PARTY/mmdetection3d" && "$PY" projects/BEVFusion/setup.py develop)
   log "optional ext: DUSt3R curope"
   (cd "$THIRD_PARTY/mast3r/dust3r/croco/models/curope" && "$PY" setup.py build_ext --inplace)
-  log "optional ext: tiny-cuda-nn (Instant-NGP speed-up)"
-  TCNN_CUDA_ARCHITECTURES="${TORCH_CUDA_ARCH_LIST//./}" \
-    uvi "$PY" --no-build-isolation "git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch" -c "$C"
+  if [[ "$BUILD_TCNN" == "1" ]]; then
+    log "optional ext: tiny-cuda-nn (Instant-NGP speed-up; long build)"
+    TCNN_CUDA_ARCHITECTURES="${TORCH_CUDA_ARCH_LIST//./}" \
+      uvi "$PY" --no-build-isolation "git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch" -c "$C"
+  fi
 fi
 
 register_kernel "$PY" "$NAME" "3dv (torch 2.1.2, cu121)"

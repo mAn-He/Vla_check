@@ -22,3 +22,6 @@ dependencies:
   - cuda-cccl
   # CUDA 12.1 accepts host gcc up to 12.
   - gxx=12.4
+  # open3d needs libEGL/libGL; headless images (RunPod, CI) often lack them
+  - libegl
+  - libgl

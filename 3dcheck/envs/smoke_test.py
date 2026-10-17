@@ -8,6 +8,7 @@ Exit code is the number of failed checks.
 
 import argparse
 import importlib
+import importlib.metadata
 import json
 import platform
 import sys
@@ -21,9 +22,10 @@ warnings.filterwarnings("ignore")
 def _ver(mod_name):
     try:
         mod = importlib.import_module(mod_name)
-        return getattr(mod, "__version__", "?")
+        ver = getattr(mod, "__version__", None)
+        return ver or importlib.metadata.version(mod_name)
     except Exception:  # noqa: BLE001 - version lookup is best effort
-        return None
+        return ""
 
 
 def _nerfstudio_methods():

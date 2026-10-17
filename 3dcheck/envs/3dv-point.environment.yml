@@ -22,3 +22,6 @@ dependencies:
   - cuda-cccl
   - gcc=13.2
   - gxx=13.2
+  # open3d needs libEGL/libGL; headless images (RunPod, CI) often lack them
+  - libegl
+  - libgl
