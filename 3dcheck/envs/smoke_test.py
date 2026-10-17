@@ -9,6 +9,7 @@ Exit code is the number of failed checks.
 import argparse
 import importlib
 import importlib.metadata
+import importlib.util
 import json
 import os
 import platform
@@ -72,6 +73,18 @@ def _curope():
     from models.curope import cuRoPE2D  # noqa: F401
 
 
+def _pointops():
+    if importlib.util.find_spec("pointops") is None:
+        raise Skip("not built (POINTOPS=1)")
+    import pointops  # noqa: F401
+
+
+def _pointcept_models():
+    from pointcept.models.builder import MODELS
+
+    assert "PT-v3m1" in MODELS.module_dict, "PTv3 (PT-v3m1) not registered"
+
+
 # (label, module for version, python statement to exec)
 CHECKS = {
     "3dv": [
@@ -105,7 +118,17 @@ CHECKS = {
         ("spconv", "spconv", "import spconv.pytorch"),
         ("torch-scatter", "torch_scatter", "import torch_scatter"),
         ("torch-cluster", "torch_cluster", "import torch_cluster"),
-        ("Pointcept", None, "import pointcept; from pointcept.models import build_model"),
+        ("Pointcept models (+PTv3)", None, _pointcept_models),
+        ("Pointcept train/test engines", None, "import pointcept.engines.train, pointcept.engines.test"),
+        (
+            "Pointcept nuScenes preprocessing",
+            None,
+            (
+                "import pointcept.datasets.preprocessing.nuscenes.preprocess_nuscenes_info, "
+                "pointcept.datasets.preprocessing.concerto.nuscenes.preprocess_nuscenes_info"
+            ),
+        ),
+        ("pointops (opt.)", None, _pointops),
         ("Sonata", None, "import sonata"),
         ("Concerto", None, "import concerto"),
         ("nuscenes-devkit", None, "from nuscenes.utils.data_classes import LidarSegPointCloud"),

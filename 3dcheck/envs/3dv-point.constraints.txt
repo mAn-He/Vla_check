@@ -4,3 +4,6 @@ torchvision==0.20.0
 spconv-cu124==2.3.8
 # nuscenes-devkit 1.2.0 requires numpy<2.
 numpy<2
+# peft (Pointcept LoRA) pulls transformers; transformers 5.x disables itself below torch 2.6
+# (utils/import_utils.py: "PyTorch >= 2.6 is required") and `import pointcept.models` then fails.
+transformers<5
