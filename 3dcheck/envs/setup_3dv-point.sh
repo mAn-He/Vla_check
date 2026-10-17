@@ -7,6 +7,7 @@
 #                Set to "" to build them from the PyPI sdist instead (slow).
 #   FLASH_ATTN   1 = install flash-attn (Ampere+ only). Without it, set enable_flash=False in configs.
 #   POINTOPS     1 = build Pointcept libs/pointops (only needed for PTv1/PTv2 or precise eval).
+#   PTV3_V151    1 = install Pointcept v1.5.1 libs/pointgroup_ops so v1.5.1 imports (PTv3 nuScenes weight attempt).
 #   plus the variables documented in _lib.sh
 
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
@@ -15,6 +16,7 @@ NAME=3dv-point
 PYG_INDEX="${PYG_INDEX-https://data.pyg.org/whl/torch-2.5.0+cu124.html}"
 FLASH_ATTN="${FLASH_ATTN:-0}"
 POINTOPS="${POINTOPS:-0}"
+PTV3_V151="${PTV3_V151:-0}"
 C="$ENVS_DIR/3dv-point.constraints.txt"
 
 pick_frontend
@@ -57,6 +59,14 @@ if [[ "$POINTOPS" == "1" ]]; then
   cuda_env "$PREFIX"
   log "optional: pointops (arch $TORCH_CUDA_ARCH_LIST)"
   (cd "$THIRD_PARTY/Pointcept/libs/pointops" && "$PY" setup.py install)
+fi
+
+if [[ "$PTV3_V151" == "1" ]]; then
+  cuda_env "$PREFIX"
+  export CPATH="$PREFIX/include:$CPATH"   # sparsehash headers
+  log "optional: Pointcept v1.5.1 pointgroup_ops (arch $TORCH_CUDA_ARCH_LIST)"
+  # setup.py maps package dir functions/ -> pointgroup_ops, so it must be installed (not built in place)
+  uvi "$PY" --no-build-isolation "$THIRD_PARTY/Pointcept-v1.5.1/libs/pointgroup_ops"
 fi
 
 register_kernel "$PY" "$NAME" "3dv-point (torch 2.5.0, cu124)"

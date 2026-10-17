@@ -7,6 +7,8 @@ dataset:
   version: v1.0-mini
   data_root: data/nuscenes          # contains samples/ sweeps/ maps/ v1.0-mini/ lidarseg/
   archives_dir: data/downloads      # where the downloaded .tgz / .tar.bz2 files are placed
+  pointcept_root: data/pointcept_nuscenes_mini   # outdoor/scripts/pointcept_nuscenes_mini.py output (raw/ + info/)
+  mmdet3d_info_eval4: nuscenes_infos_eval4.pkl   # outdoor/scripts/make_eval4_infos.py output (in data_root)
 
 # Official checkpoints are trained on the official train split. 6 of the 8 mini_train scenes belong to it,
 # so evaluation uses only mini scenes from the official val split (see docs/step0_research.md, section 2).
@@ -147,6 +149,13 @@ profiles:
     point:
       pointnet_epochs: 30
       pointnet_points: 256
+      pointnet_min_points: 5        # objects with fewer LiDAR points are dropped
+      pointnet_batch_size: 32
+      pointnet_lr: 0.001
+      pointnet_feature_transform: false
+      num_worker: 4
+      timing_scans: 10
+      proxy_max_dist: 0.5           # 6c: GT label transfer radius real->pseudo (m)
       probe_epochs: 20
       probe_batch_size: 2
       enable_flash: true            # needs flash-attn (FLASH_ATTN=1); set false otherwise

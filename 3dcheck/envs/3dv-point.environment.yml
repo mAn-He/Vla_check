@@ -25,6 +25,8 @@ dependencies:
   # compiler, not the system one: envs/_lib.sh:cuda_env sets PATH/CC/CXX.
   - gcc=11
   - gxx=11
+  # header-only; needed to build Pointcept v1.5.1 libs/pointgroup_ops (PTV3_V151=1)
+  - sparsehash
   # open3d needs libEGL/libGL; headless images (RunPod, CI) often lack them
   - libegl
   - libgl

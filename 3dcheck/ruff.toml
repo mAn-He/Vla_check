@@ -8,4 +8,5 @@ ignore = ["SIM108", "B905"]
 [lint.per-file-ignores]
 # notebook sources: last-expression display, imports placed in later cells, IPython builtins
 "*/notebooks/src/*.py" = ["B018", "E402", "F821", "E501"]
+"*/notebooks/*.ipynb" = ["B018", "E402", "F821", "E501"]
 "common/tests/*.py" = ["E731"]

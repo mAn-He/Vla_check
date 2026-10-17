@@ -1,0 +1,523 @@
+# ---
+# jupyter:
+#   kernelspec:
+#     display_name: 3dv (torch 2.1.2, cu121)
+#     language: python
+#     name: 3dv
+# ---
+
+# %% [markdown]
+# # 05. 3D 객체 탐지: LiDAR vs pseudo-LiDAR vs 융합 vs 카메라 전용
+#
+# ## 목적
+# 같은 nuScenes 평가 장면(eval4)에서 입력 센서만 바꿔 3D 탐지 성능이 얼마나 달라지는지 잰다.
+# 공식 체크포인트(전부 공식 train 분할로 학습)를 재학습 없이 쓰고, 입력·평가 영역을 맞추는 공정성 통제를 둔다.
+# - (a) 실제 LiDAR, 공식 multi-sweep / (a1) 단일 sweep / (a2) 단일 sweep + 카메라 시야(FOV) 밖 점 제거
+# - (b) 04의 pseudo-LiDAR(카메라 깊이 → 점군), 단일 sweep
+# - (c) BEVFusion LiDAR+카메라 공식 / (c1) BEVFusion의 LiDAR를 pseudo-LiDAR로 교체
+# - (d) FCOS3D 카메라 전용 단안 3D 탐지기 ("카메라 고유" 기준선)
+#
+# ## 비교 모델과 원리
+# - **PointPillars**: 바닥을 0.25 m 격자 기둥(pillar)으로 나누고 기둥마다 PointNet으로 특징을 낸 뒤 BEV 2D 이미지로
+#   흩뿌려 2D CNN(SECOND+FPN)과 앵커 헤드로 상자를 낸다. 빠르고 단순해 엣지 배포(08)의 기준 모델이다.
+#   nuScenes 공식 설정은 10 sweep(약 0.5 s)을 합치고 점 특징으로 (x, y, z, 시간차)를 쓴다(intensity 미사용).
+# - **CenterPoint**: 0.075 m 3D 복셀 + 희소 3D 합성곱(SECOND) 백본, BEV 히트맵에서 물체 중심점을 찾고 크기·방향·속도를
+#   회귀하는 앵커 없는 헤드. 9 sweep, 특징 (x, y, z, intensity, 시간차).
+# - **BEVFusion (MIT)**: 카메라 6장을 Swin-T + LSS 깊이 분포로 BEV에 올리고, LiDAR BEV 특징과 합성곱으로 융합한 뒤
+#   TransFusion 헤드로 탐지한다. 카메라와 LiDAR를 같은 BEV 공간에서 합치는 대표 융합 모델.
+# - **FCOS3D**: 이미지 한 장마다 FCOS식 밀집 예측으로 2D 중심·깊이·크기·방향을 직접 회귀하는 단안 3D 탐지기.
+#   6개 카메라 결과를 전역 좌표로 옮겨 합치고 3D NMS로 중복을 지운다. 카메라만으로 학습한 nuScenes 공식 모델.
+# - **pseudo-LiDAR (04 산출물)**: 카메라 깊이 추정 결과를 역투영한 점군을 LiDAR 탐지기에 그대로 넣는다.
+#   intensity·ring은 0으로 채운다. 학습 분포와 다른 입력이라 "깊이만 맞으면 LiDAR 탐지기를 재사용할 수 있는가"를 본다.
+#
+# ## 원 논문
+# - PointPillars: https://arxiv.org/abs/1812.05784
+# - CenterPoint: https://arxiv.org/abs/2006.11275
+# - BEVFusion (MIT): https://arxiv.org/abs/2205.13542
+# - FCOS3D: https://arxiv.org/abs/2104.10956
+# - pseudo-LiDAR 개념: https://arxiv.org/abs/1812.07179
+#
+# ## 커널
+# `3dv` (torch 2.1.2 + cu121, mmcv 2.1.0, mmdet 3.3.0, mmdet3d 1.4.0). BEVFusion은 `BUILD_EXT=1`로 빌드한 연산자가 필요하다.
+#
+# ## 예상 VRAM·시간 (추정)
+# 아래는 **추정치**이며 실측값은 각 summary의 `peak_vram_mb`, `runtime_s`를 본다. eval4 = 키프레임 약 160개.
+#
+# | 프로파일 | 모델 | 예상 피크 VRAM | 예상 시간(추론 + 평가, 실험 1개) |
+# |---|---|---|---|
+# | mid (RTX 3060 12GB) | PointPillars | 2~3 GB | 1~3분 |
+# | mid | CenterPoint | 3~5 GB | 2~4분 |
+# | mid | BEVFusion | 6~9 GB | 3~6분 |
+# | mid | FCOS3D (이미지 약 960장) | 3~5 GB | 4~8분 |
+# | low (6GB) | BEVFusion 제외, FOV는 CAM_FRONT만 | 위와 같음 | 위와 같음 |
+#
+# 평가(장면 필터 3종 + 거리 구간)는 실험마다 1~2분 더 걸린다. 첫 실행은 체크포인트 다운로드 시간이 추가된다.
+#
+# ## 이 노트북이 답하려는 질문
+# 1. 같은 LiDAR 탐지기에서 multi-sweep → 단일 sweep → 카메라 시야 크롭으로 입력을 줄이면 mAP/NDS가 얼마나 떨어지는가?
+# 2. 단일 sweep LiDAR와 pseudo-LiDAR(같은 탐지기, 같은 시야)의 차이는 어느 거리 구간에서 커지는가?
+# 3. 카메라 고유 탐지기(FCOS3D)와 "pseudo-LiDAR + LiDAR 탐지기" 중 카메라만 쓸 때 어느 쪽이 나은가?
+# 4. 융합(BEVFusion)은 LiDAR 단독 대비 얼마나 이득이고, LiDAR를 pseudo-LiDAR로 바꾸면 무엇이 남는가?
+
+# %% [markdown]
+# ## 1. 설정 로드
+# 사전 준비(한 번): `bash outdoor/scripts/prepare_mmdet3d_infos.sh` → `nuscenes_infos_{train,val,eval4}.pkl`과
+# `v1.0-mini/splits.json`(eval4, probe6, mini_val_official)이 데이터 루트에 생긴다.
+
+# %%
+FORCE_RERUN = False            # True: ignore cached results
+NOTEBOOK = "05_lidar_detection"
+RUN_C1 = True                  # BEVFusion with pseudo-LiDAR replacing the real LiDAR
+RUN_MINIVAL_REFERENCE = True   # once: mmdet3d's own mini_val evaluation (pointpillars, official setting)
+PSEUDO_SOURCE = None           # override the 04 model id (e.g. "da3_metric_large"); None = auto
+NUM_WORKERS = None             # None = dataloader workers of the official config
+
+import json
+from pathlib import Path
+
+import numpy as np
+from bench3d.config import load_config
+from bench3d.io import is_cached, load_nuscenes_bin, result_dir, save_summary
+from bench3d.runtime import env_report, free_cuda, set_seed
+
+cfg = load_config("outdoor")                 # profile: config.yaml or $THREEDCHECK_PROFILE
+P = cfg.p["detection"]                       # this notebook's profile block
+MODELS = cfg["models"]["detection"]
+FORCE_RERUN = FORCE_RERUN or cfg.get("force_rerun", False)
+set_seed(cfg["seed"])
+ENV = env_report(["torch", "numpy", "mmcv", "mmdet", "mmdet3d", "mmengine", "nuscenes-devkit"])
+print(json.dumps(ENV, indent=1))
+print("profile:", cfg["profile"], P)
+
+from bench3d.models import mmdet3d_tools as mt  # registers CropPointsToCameraFOV into mmdet3d TRANSFORMS
+
+MMDET3D = mt.add_repo_to_path(cfg.third_party("mmdetection3d"))   # configs/ and projects/BEVFusion
+FOV = list(P["fov_cams"])
+DIST_BINS = [tuple(b) for b in P["dist_bins"]]
+
+# %% [markdown]
+# ## 2. 데이터 로드와 사전 점검
+# - eval4 info 파일의 샘플이 eval4 장면의 키프레임과 정확히 같은 순서·개수인지 확인한다
+#   (NuScenesMetric이 `data_list[sample_idx]`로 토큰을 찾으므로 순서가 어긋나면 결과가 엉뚱한 샘플에 붙는다).
+# - FOV 크롭 변환은 nuScenes 이미지 크기(1600×900)를 가정하므로 devkit 값으로 확인한다.
+
+# %%
+import mmengine
+from bench3d.nusc import CAMERAS, scene_samples
+from nuscenes.nuscenes import NuScenes
+
+DATA_ROOT = cfg.path(cfg["dataset"]["data_root"])
+VERSION = cfg["dataset"]["version"]
+EVAL4_PKL = cfg["dataset"]["mmdet3d_info_eval4"]  # written by outdoor/scripts/make_eval4_infos.py
+MINIVAL_PKL = "nuscenes_infos_val.pkl"          # tools/create_data.py (mini_val scenes)
+for f in (DATA_ROOT / EVAL4_PKL, DATA_ROOT / MINIVAL_PKL, DATA_ROOT / VERSION / "splits.json"):
+    assert f.exists(), f"{f} missing: run outdoor/scripts/prepare_mmdet3d_infos.sh"
+custom_splits = json.loads((DATA_ROOT / VERSION / "splits.json").read_text())
+assert custom_splits.get("eval4") == list(cfg["splits"]["eval4"]), "splits.json eval4 differs from config"
+assert "mini_val_official" in custom_splits
+
+nusc = NuScenes(version=VERSION, dataroot=str(DATA_ROOT), verbose=False)
+EVAL_TOKENS = [t for s in cfg["splits"]["eval4"] for t in scene_samples(nusc, s)]
+eval4_infos = mmengine.load(str(DATA_ROOT / EVAL4_PKL))["data_list"]
+assert [d["token"] for d in eval4_infos] == EVAL_TOKENS, "eval4 pkl order != eval4 keyframes"
+assert [d["sample_idx"] for d in eval4_infos] == list(range(len(eval4_infos)))
+print(f"eval4: {len(EVAL_TOKENS)} keyframes in {cfg['splits']['eval4']}")
+
+s0 = nusc.get("sample", EVAL_TOKENS[0])
+for c in CAMERAS:
+    sd = nusc.get("sample_data", s0["data"][c])
+    assert (sd["width"], sd["height"]) == mt.NUSCENES_IMAGE_SIZE, (c, sd["width"], sd["height"])
+
+# cross-check with 01's frozen sample list if it exists
+eval_samples_file = cfg.path(cfg["results_root"]) / "01_data_exploration" / "eval_samples.json"
+if eval_samples_file.exists():
+    es = json.loads(eval_samples_file.read_text())
+    k01 = [t for s in cfg["splits"]["eval4"] for t in es["keyframes"].get(s, [])]
+    print("01 eval_samples keyframes match:", k01 == EVAL_TOKENS)
+
+# %% [markdown]
+# ### pseudo-LiDAR 입력 (04 산출물)
+# 04는 `results/outdoor/04_pseudo_lidar/<model>/pseudo/samples/LIDAR_TOP/<원래 파일명>`에 nuScenes `.bin` 형식
+# (float32 × 5: x, y, z, intensity=0, ring=0, LIDAR_TOP 좌표계)으로 저장한다.
+# 선택 순서: `PSEUDO_SOURCE` → config `pseudo_lidar_source` → 04 summary의 선택 표시 → 존재하는 출력이 하나면 그것.
+# eval4의 모든 키프레임에 파일이 있어야 한다(평가가 샘플 전체를 요구함).
+
+# %%
+PSEUDO_ROOT = cfg.path(cfg["results_root"]) / "04_pseudo_lidar"
+lidar_basenames = [Path(nusc.get("sample_data", nusc.get("sample", t)["data"]["LIDAR_TOP"])["filename"]).name
+                   for t in EVAL_TOKENS]
+
+
+def pseudo_candidates() -> list[str]:
+    return sorted(p.parents[2].name for p in PSEUDO_ROOT.glob("*/pseudo/samples/LIDAR_TOP") if p.is_dir())
+
+
+def pick_pseudo_source() -> str | None:
+    cands = pseudo_candidates()
+    for choice in (PSEUDO_SOURCE, cfg.get("pseudo_lidar_source")):
+        if choice:
+            assert choice in cands, f"pseudo source {choice} not found under {PSEUDO_ROOT} ({cands})"
+            return choice
+    # 04 marks its chosen output with summary["extra"]["selected_for_detection"] = true
+    flagged = [c for c in cands for f in (PSEUDO_ROOT / c).glob("summary*.json")
+               if json.loads(f.read_text()).get("extra", {}).get("selected_for_detection")]
+    if flagged:
+        return flagged[0]
+    if len(cands) > 1:
+        print(f"WARNING: several 04 outputs {cands}; using {cands[0]} (set PSEUDO_SOURCE to choose)")
+    return cands[0] if cands else None
+
+
+PSEUDO_MODEL = pick_pseudo_source()
+PSEUDO_PTS = None
+if PSEUDO_MODEL is None:
+    print("no 04 pseudo-LiDAR output found -> experiments b / c1 are skipped")
+else:
+    PSEUDO_PTS = PSEUDO_ROOT / PSEUDO_MODEL / "pseudo" / "samples" / "LIDAR_TOP"
+    missing = [b for b in lidar_basenames if not (PSEUDO_PTS / b).exists()]
+    assert not missing, f"{len(missing)} eval4 keyframes have no pseudo-LiDAR file (e.g. {missing[:2]}); rerun 04"
+    _p = load_nuscenes_bin(PSEUDO_PTS / lidar_basenames[0])   # raises if not 5 float32 channels
+    print(f"pseudo-LiDAR: {PSEUDO_MODEL}, {_p.shape[0]} points in the first keyframe, "
+          f"channels 3-4 all zero: {bool(np.all(_p[:, 3:] == 0))}")
+    pl_cams = cfg.p["pseudo_lidar"]["cams"]
+    if set(pl_cams) != set(FOV):
+        print(f"WARNING: pseudo-LiDAR cams {pl_cams} != detection fov_cams {FOV}; FOV-filtered metrics then "
+              "count GT that the pseudo-LiDAR cannot see")
+
+# %% [markdown]
+# ## 3. 실험 정의와 공정성 통제
+#
+# | 실험 | 모델 | 입력 | sweep | 입력 크롭 | 360° 입력 |
+# |---|---|---|---|---|---|
+# | `a_lidar_official` | PointPillars, CenterPoint | 실제 LiDAR | 공식(10 / 9) | 없음 | 예 |
+# | `a1_lidar_1sweep` | 〃 | 실제 LiDAR | 0 (키프레임만) | 없음 | 예 |
+# | `a2_lidar_1sweep_fovcrop` | 〃 | 실제 LiDAR | 0 | `fov_cams` 시야 밖 점 제거 | `fov_cams`가 6캠일 때만 |
+# | `b_pseudo_1sweep` | 〃 | pseudo-LiDAR | 0 | (04 카메라 시야뿐) | 04 카메라가 6캠일 때만 |
+# | `c_fusion_official` | BEVFusion | LiDAR + 6캠 | 공식(9) | 없음 | 예 |
+# | `c1_fusion_pseudo` | BEVFusion | pseudo-LiDAR + 6캠 | 0 | 없음 | 04 카메라에 따름 |
+# | `d_camera_mono` | FCOS3D | 6캠 이미지 | — | — | 예 |
+#
+# - **sweep 끄기**: `LoadPointsFromMultiSweeps`를 지우지 않고 `sweeps_num=0`으로 둔다. 이 변환은 키프레임의 5번째 열
+#   (ring index)을 0으로 바꾸고(= 시간차 0) `use_dim`을 적용한다. 지우면 시간차 자리에 ring index가 들어가 모델 입력이 틀어진다.
+#   `sweeps_num=0`이면 `choices = arange(0)`이라 sweep을 하나도 읽지 않는다(`mmdet3d/datasets/transforms/loading.py`).
+#   단일 sweep 입력의 시간 채널은 모두 0이고, 이는 학습 때 키프레임 점의 값과 같다(학습 분포 안).
+# - **입력 FOV 크롭**: `CropPointsToCameraFOV`(bench3d.models.mmdet3d_tools)가 sweep 로딩 직후 info의 카메라별
+#   `lidar2cam`, `cam2img`로 점을 투영해 어느 카메라에도 안 보이는 점을 버린다. 평가 FOV 필터와 같은 규칙(z>0, 이미지 안).
+# - **pseudo-LiDAR 경로**: `data_prefix['pts']`만 04 폴더(절대경로)로 바꾼다. info·GT·카메라 보정은 그대로다.
+# - **CenterPoint/BEVFusion 공식 테스트 파이프라인**은 `test_mode` 없이 10개 sweep 중 9개를 무작위로 고른다.
+#   그래서 Runner `randomness.seed`를 config `seed`로 고정한다(PointPillars는 `test_mode=True`라 결정적).
+# - 체크포인트는 모두 공식 train 분할로 학습됐고 eval4 4개 장면은 공식 val이다(누수 없음, `make_eval4_infos.py`가 검사).
+
+# %%
+ALL6 = set(CAMERAS)
+PSEUDO_360 = set(cfg.p["pseudo_lidar"]["cams"]) == ALL6
+EXPERIMENTS = {
+    "a_lidar_official": dict(models=("pointpillars", "centerpoint"), sweeps=None, fov_crop=False, pseudo=False,
+                             coverage_360=True),
+    "a1_lidar_1sweep": dict(models=("pointpillars", "centerpoint"), sweeps=0, fov_crop=False, pseudo=False,
+                            coverage_360=True),
+    "a2_lidar_1sweep_fovcrop": dict(models=("pointpillars", "centerpoint"), sweeps=0, fov_crop=True, pseudo=False,
+                                    coverage_360=set(FOV) == ALL6),
+    "b_pseudo_1sweep": dict(models=("pointpillars", "centerpoint"), sweeps=0, fov_crop=False, pseudo=True,
+                            coverage_360=PSEUDO_360),
+    "c_fusion_official": dict(models=("bevfusion",), sweeps=None, fov_crop=False, pseudo=False, coverage_360=True),
+    "c1_fusion_pseudo": dict(models=("bevfusion",), sweeps=0, fov_crop=False, pseudo=True, coverage_360=PSEUDO_360),
+    "d_camera_mono": dict(models=("fcos3d",), sweeps=None, fov_crop=False, pseudo=False, coverage_360=True),
+}
+if not RUN_C1:
+    EXPERIMENTS.pop("c1_fusion_pseudo")
+
+RUNS = [(m, e) for m in P["models"] for e, spec in EXPERIMENTS.items()
+        if m in spec["models"] and (not spec["pseudo"] or PSEUDO_PTS is not None)]
+print("runs:", RUNS)
+
+# fairness check: official sweep counts must match config.yaml (metafile values)
+for m in P["models"]:
+    base = mt.load_config(MMDET3D, MODELS[m]["config"])
+    got = mt.get_sweeps(base.test_dataloader.dataset.pipeline) or 0
+    assert got == MODELS[m]["sweeps"], f"{m}: config sweeps {got} != config.yaml {MODELS[m]['sweeps']}"
+    print(f"{m:13s} official sweeps={got}, reported mAP/NDS (full val) = {MODELS[m]['reported']}")
+
+# %% [markdown]
+# ## 4. 모델별 실행
+# `Config.fromfile` → 테스트 설정 교체(`mt.configure_test`) → `Runner.from_cfg(cfg).test()`.
+# - test dataloader: `data_root`=nuScenes 루트, `ann_file`=`nuscenes_infos_eval4.pkl`
+# - test_evaluator: `NuScenesMetric(format_only=True, jsonfile_prefix=...)` → `<prefix>/pred_instances_3d/results_nusc.json`
+#   (전역 좌표 nuScenes 제출 형식. LiDAR 모델은 `lidar2ego`→`ego2global`, FCOS3D는 카메라별 `cam2ego`→`ego2global` 후
+#   6캠 3D NMS로 합침. `mmdet3d/evaluation/metrics/nuscenes_metric.py`)
+# - 속도: `LoopTimer` 훅이 테스트 루프를 잰다. `samples_per_s`는 **데이터 로딩(sweep 파일 읽기, 이미지 디코딩) 포함**,
+#   `samples_per_s_model_only`는 전처리(복셀화)+네트워크+디코딩만. 둘 다 배치 1, 체크포인트 로딩과 json 변환 제외.
+#   FCOS3D는 데이터셋 항목이 이미지 단위(샘플당 6개)라 6으로 나눠 샘플 단위로 맞춘다.
+
+# %%
+def run_dir(model_id: str) -> Path:
+    return result_dir(cfg, NOTEBOOK, model_id)
+
+
+def json_prefix(model_id: str, exp_id: str) -> Path:
+    return run_dir(model_id) / f"json_{exp_id}"
+
+
+def run_experiment(model_id: str, exp_id: str) -> dict:
+    spec, m = EXPERIMENTS[exp_id], MODELS[model_id]
+    out = run_dir(model_id)
+    timing_file = out / f"timing_{exp_id}.json"
+    rjson = mt.result_json(json_prefix(model_id, exp_id))
+    if is_cached(rjson, FORCE_RERUN) and timing_file.exists():
+        return json.loads(timing_file.read_text())
+    base = mt.load_config(MMDET3D, m["config"])
+    test_cfg = mt.configure_test(
+        base, data_root=DATA_ROOT, ann_file=EVAL4_PKL, work_dir=out / "work_dirs" / exp_id,
+        checkpoint=m["checkpoint"], jsonfile_prefix=json_prefix(model_id, exp_id),
+        pts_prefix=PSEUDO_PTS if spec["pseudo"] else None, sweeps=spec["sweeps"],
+        fov_crop_cams=FOV if spec["fov_crop"] else None, seed=cfg["seed"], num_workers=NUM_WORKERS)
+    with free_cuda():
+        r = mt.run_test(test_cfg, items_per_sample=6 if m["modality"] == "camera" else 1)
+    assert rjson.exists(), f"no result json at {rjson}"
+    timing = {k: r[k] for k in ("runtime_s", "peak_vram_mb", "n_samples", "loop_s", "model_s", "samples_per_s",
+                                "samples_per_s_model_only")}
+    assert round(timing["n_samples"]) == len(EVAL_TOKENS), timing
+    timing_file.write_text(json.dumps(timing, indent=1))
+    return timing
+
+
+TIMING = {}
+for model_id, exp_id in RUNS:
+    print(f"=== {model_id} / {exp_id}")
+    TIMING[(model_id, exp_id)] = run_experiment(model_id, exp_id)
+    print(TIMING[(model_id, exp_id)])
+
+# %% [markdown]
+# ### mmdet3d 기본 mini 평가(투명성용, 1회)
+# mmdet3d는 `v1.0-mini`면 `NuScenesMetric`이 자동으로 devkit `mini_val`(2장면)로 평가한다. 우리 주 평가셋(eval4)과 다르므로
+# PointPillars 공식 설정으로 한 번만 돌려 기록한다. 같은 예측을 bench3d로 `mini_val_official`(같은 2장면) 평가한 값과
+# 일치해야 한다(평가 경로 검증).
+
+# %%
+MINIVAL_REF = None
+if RUN_MINIVAL_REFERENCE and "pointpillars" in P["models"]:
+    ref_file = run_dir("pointpillars") / "minival_mmdet3d_reference.json"
+    if is_cached(ref_file, FORCE_RERUN):
+        MINIVAL_REF = json.loads(ref_file.read_text())
+    else:
+        m = MODELS["pointpillars"]
+        ref_cfg = mt.configure_test(
+            mt.load_config(MMDET3D, m["config"]), data_root=DATA_ROOT, ann_file=MINIVAL_PKL,
+            work_dir=run_dir("pointpillars") / "work_dirs" / "minival_ref", checkpoint=m["checkpoint"],
+            jsonfile_prefix=run_dir("pointpillars") / "json_minival_mmdet3d", format_only=False, seed=cfg["seed"],
+            num_workers=NUM_WORKERS)
+        with free_cuda():
+            r = mt.run_test(ref_cfg)
+        MINIVAL_REF = {k.split("/")[-1]: v for k, v in r["metrics"].items() if k.endswith(("/mAP", "/NDS"))}
+        ref_file.write_text(json.dumps(MINIVAL_REF, indent=1))
+    print("mmdet3d default mini_val (PointPillars, official):", MINIVAL_REF)
+
+# %% [markdown]
+# ## 5. 평가
+# devkit `DetectionEval`(detection_cvpr_2019 설정)을 bench3d `evaluate_detection`으로 감싸 eval4 커스텀 분할에서 계산한다.
+# devkit 자체 필터(클래스별 거리 상한 50/40/30 m, LiDAR·레이더 점 0개인 GT 제거, 자전거 거치대 안 상자 제거)를 거친 뒤
+# 아래 추가 필터를 **GT와 예측에 똑같이** 적용한다.
+#
+# | 설정 | 필터 | 비고 |
+# |---|---|---|
+# | (i) `nofov` | 없음 | 360° 입력에서만 의미 있음. 시야가 좁은 입력은 안 보이는 GT까지 놓친 것으로 센다 |
+# | (ii) `fov` | 상자 **중심**이 `fov_cams` 중 하나의 이미지 안(카메라 앞쪽, 0 ≤ u < W, 0 ≤ v < H) | **주 지표**(모든 실험 공통 비교 기준) |
+# | (iii) `fov_d{lo}-{hi}` | (ii) + ego 거리(devkit `ego_dist`, xy 평면) ∈ [lo, hi) m | 구간: config `dist_bins` |
+#
+# - 지표: mAP(중심거리 0.5/1/2/4 m 매칭 평균), NDS, TP 오차(mATE, mASE, mAOE, mAVE, mAAE), 클래스별 AP, `n_gt_boxes`.
+# - summary의 `mAP`, `NDS`, `mATE`… 는 (ii) FOV 필터 값이다. (i)은 `nofov_*`, (iii)은 `fov_d0-20_*` 처럼 접두사를 붙인다.
+# - **주의**: eval4는 4개 장면(키프레임 약 160개)뿐이라 공식 val(150장면) 수치와 **직접 비교할 수 없다**.
+#   config의 `reported`(공식 val 전체)는 참고로만 같이 적는다. GT의 "점 0개 제거" 규칙은 LiDAR 기준이므로
+#   카메라 입력에도 같은 GT 집합을 쓴다.
+
+# %%
+from bench3d.metrics.detection import evaluate_detection
+
+TP_NAMES = {"trans_err": "mATE", "scale_err": "mASE", "orient_err": "mAOE", "vel_err": "mAVE", "attr_err": "mAAE"}
+SETTINGS = {"nofov": dict(fov_cams=None, dist_range=None), "fov": dict(fov_cams=FOV, dist_range=None)}
+SETTINGS.update({f"fov_d{lo:g}-{hi:g}": dict(fov_cams=FOV, dist_range=(lo, hi)) for lo, hi in DIST_BINS})
+
+
+def evaluate_run(model_id: str, exp_id: str) -> dict:
+    cache = run_dir(model_id) / f"eval_{exp_id}.json"
+    if is_cached(cache, FORCE_RERUN):
+        return json.loads(cache.read_text())
+    rjson = mt.result_json(json_prefix(model_id, exp_id))
+    res = {}
+    for name, kw in SETTINGS.items():
+        res[name] = evaluate_detection(nusc, rjson, "eval4", run_dir(model_id) / f"devkit_{exp_id}" / name, **kw)
+    if exp_id in ("a_lidar_official", "c_fusion_official", "d_camera_mono"):   # transparency: mmdet3d's mini_val
+        res["minival_nofov"] = evaluate_detection(nusc, rjson, "mini_val_official",
+                                                  run_dir(model_id) / f"devkit_{exp_id}" / "minival")
+    cache.write_text(json.dumps(res, indent=1))
+    return res
+
+
+def flat_metrics(res: dict, timing: dict) -> dict:
+    out = {}
+    for name in SETTINGS:
+        r = res[name]
+        pre = "" if name == "fov" else f"{name}_"
+        out[f"{pre}mAP"], out[f"{pre}NDS"], out[f"{pre}n_gt_boxes"] = r["mAP"], r["NDS"], r["n_gt_boxes"]
+        if name in ("fov", "nofov"):
+            out.update({f"{pre}{v}": r[k] for k, v in TP_NAMES.items()})
+    out["samples_per_s"] = timing["samples_per_s"]
+    out["samples_per_s_model_only"] = timing["samples_per_s_model_only"]
+    return out
+
+
+EVAL = {}
+for model_id, exp_id in RUNS:
+    EVAL[(model_id, exp_id)] = evaluate_run(model_id, exp_id)
+    r = EVAL[(model_id, exp_id)]
+    print(f"{model_id:13s} {exp_id:25s} fov mAP {r['fov']['mAP']:.3f} NDS {r['fov']['NDS']:.3f} | "
+          f"nofov mAP {r['nofov']['mAP']:.3f} NDS {r['nofov']['NDS']:.3f}")
+
+if MINIVAL_REF and ("pointpillars", "a_lidar_official") in EVAL:
+    b = EVAL[("pointpillars", "a_lidar_official")]["minival_nofov"]
+    print(f"mini_val check (PointPillars): mmdet3d {MINIVAL_REF}  vs  bench3d mAP {b['mAP']:.4f} NDS {b['NDS']:.4f}")
+
+# %% [markdown]
+# ## 6. 결과 저장
+# 모델 폴더마다 `summary_<실험>.json` (같은 스키마). 클래스별 AP와 거리 구간 표는 `extra`에 넣는다.
+
+# %%
+for model_id, exp_id in RUNS:
+    res, timing, spec, m = EVAL[(model_id, exp_id)], TIMING[(model_id, exp_id)], EXPERIMENTS[exp_id], MODELS[model_id]
+    extra = {
+        "experiment": exp_id, "eval_set": "eval4", "n_samples": len(EVAL_TOKENS), "fov_cams": FOV,
+        "dist_bins": [list(b) for b in DIST_BINS], "coverage_360": spec["coverage_360"],
+        "sweeps": m["sweeps"] if spec["sweeps"] is None else spec["sweeps"], "input_fov_crop": spec["fov_crop"],
+        "pseudo_lidar_source": PSEUDO_MODEL if spec["pseudo"] else None,
+        "per_class_ap": {name: res[name]["per_class_ap"] for name in SETTINGS},
+        "dist_table": {name: {"mAP": res[name]["mAP"], "NDS": res[name]["NDS"], "n_gt_boxes": res[name]["n_gt_boxes"]}
+                       for name in SETTINGS if name.startswith("fov_d")},
+        "timing": timing, "reported_full_val": m["reported"], "config": m["config"],
+        "note": "eval4 (4 mini scenes in official val); not comparable to published full-val numbers",
+    }
+    if "minival_nofov" in res:
+        extra["minival_bench3d"] = {k: res["minival_nofov"][k] for k in ("mAP", "NDS", "n_gt_boxes")}
+        if model_id == "pointpillars" and MINIVAL_REF:
+            extra["minival_mmdet3d"] = MINIVAL_REF
+    save_summary(run_dir(model_id), part="outdoor", notebook=NOTEBOOK, profile=cfg["profile"], model=model_id,
+                 variant=f"{exp_id}/eval4", metrics=flat_metrics(res, timing), runtime_s=timing["runtime_s"],
+                 peak_vram_mb=timing["peak_vram_mb"], checkpoint=m["checkpoint"], packages=ENV["packages"],
+                 seed=cfg["seed"], extra=extra, filename=f"summary_{exp_id}.json")
+
+import pandas as pd
+
+rows = []
+for (model_id, exp_id), res in EVAL.items():
+    rows.append({"model": model_id, "experiment": exp_id, "360°": EXPERIMENTS[exp_id]["coverage_360"],
+                 "mAP(fov)": res["fov"]["mAP"], "NDS(fov)": res["fov"]["NDS"],
+                 "mAP(nofov)": res["nofov"]["mAP"], "NDS(nofov)": res["nofov"]["NDS"],
+                 "n_gt(fov)": res["fov"]["n_gt_boxes"], "samples/s": TIMING[(model_id, exp_id)]["samples_per_s"],
+                 "reported mAP/NDS (full val)": f"{MODELS[model_id]['reported']['mAP']}/{MODELS[model_id]['reported']['NDS']}"})
+TABLE = pd.DataFrame(rows)
+TABLE.round(4)
+
+# %% [markdown]
+# ## 7. 시각화
+# ### 7.1 BEV: GT vs 예측 (실제 LiDAR vs pseudo-LiDAR)
+# 첫 eval4 장면의 가운데 키프레임. LIDAR_TOP 좌표계(x 앞, y 왼쪽). 회색 점 = 입력 점군, 주황 = GT(탐지 10개 클래스),
+# 파랑 = 예측(점수 ≥ 0.3).
+
+# %%
+import matplotlib.pyplot as plt
+from bench3d.nusc import load_lidar, sensor_to_global
+from bench3d.sampling import middle
+from bench3d.viz import PALETTE, bev, model_colors
+from nuscenes.eval.detection.utils import category_to_detection_name
+from nuscenes.utils.data_classes import Box
+from pyquaternion import Quaternion
+
+VIZ_SCORE = 0.3
+viz_token = middle(scene_samples(nusc, cfg["splits"]["eval4"][0]))
+viz_sd = nusc.get("sample", viz_token)["data"]["LIDAR_TOP"]
+G2L = np.linalg.inv(sensor_to_global(nusc, viz_sd))
+
+
+def pred_boxes_xy(rjson: Path) -> list[np.ndarray]:
+    recs = json.loads(Path(rjson).read_text())["results"].get(viz_token, [])
+    out = []
+    for r in recs:
+        if r["detection_score"] < VIZ_SCORE:
+            continue
+        b = Box(r["translation"], r["size"], Quaternion(r["rotation"]))
+        b.rotate(Quaternion(matrix=G2L[:3, :3], rtol=1e-5, atol=1e-6))
+        b.translate(G2L[:3, 3])
+        out.append(b.bottom_corners()[:2].T)
+    return out
+
+
+gt_xy = [b.bottom_corners()[:2].T for b in nusc.get_sample_data(viz_sd)[1]
+         if category_to_detection_name(b.name) is not None]
+viz_model = next((m for m in ("pointpillars", "centerpoint") if (m, "a_lidar_official") in EVAL), None)
+panels = [("a_lidar_official", load_lidar(nusc, viz_sd)[:, :3], "real LiDAR (keyframe only shown)")]
+if PSEUDO_PTS is not None:
+    panels.append(("b_pseudo_1sweep", load_nuscenes_bin(PSEUDO_PTS / Path(nusc.get("sample_data", viz_sd)["filename"]).name)[:, :3],
+                   f"pseudo-LiDAR ({PSEUDO_MODEL})"))
+if viz_model:
+    fig, axes = plt.subplots(1, len(panels), figsize=(7 * len(panels), 7), squeeze=False)
+    for ax, (exp_id, pts, title) in zip(axes[0], panels):
+        bev(ax, pts, extent=50, color="#999999", s=0.2, boxes_xy=gt_xy)
+        for c in pred_boxes_xy(mt.result_json(json_prefix(viz_model, exp_id))):
+            cc = np.vstack([c, c[:1]])
+            ax.plot(cc[:, 0], cc[:, 1], lw=0.8, color=PALETTE[0])
+        ax.set_title(f"{viz_model} / {exp_id}\n{title}", fontsize=9)
+    plt.tight_layout()
+    plt.show()
+
+# %% [markdown]
+# ### 7.2 실험별 mAP / NDS (FOV 필터)
+
+# %%
+exp_order = [e for e in EXPERIMENTS if any(e == x for _, x in RUNS)]
+model_order = [m for m in P["models"] if any(m == x for x, _ in RUNS)]
+cols = model_colors(model_order)
+fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+w = 0.8 / max(1, len(model_order))
+for ax, metric in zip(axes, ("mAP", "NDS")):
+    for i, m in enumerate(model_order):
+        xs = [j + (i - (len(model_order) - 1) / 2) * w for j, e in enumerate(exp_order) if (m, e) in EVAL]
+        ys = [EVAL[(m, e)]["fov"][metric] for e in exp_order if (m, e) in EVAL]
+        ax.bar(xs, ys, width=w, color=cols[m], label=m)
+    ax.set_xticks(range(len(exp_order)))
+    ax.set_xticklabels(exp_order, rotation=25, ha="right", fontsize=8)
+    ax.set_ylabel(f"{metric} (fov filter)")
+    ax.grid(axis="y", alpha=0.3)
+axes[0].legend(fontsize=8)
+plt.suptitle("eval4, FOV filter = " + ", ".join(FOV), fontsize=9)
+plt.tight_layout()
+plt.show()
+
+# %% [markdown]
+# ### 7.3 거리 구간별 mAP (FOV 필터)
+
+# %%
+bin_names = [n for n in SETTINGS if n.startswith("fov_d")]
+styles = {e: s for e, s in zip(EXPERIMENTS, ["-", "--", ":", "-.", "-", "--", "-"])}
+fig, ax = plt.subplots(figsize=(8, 4.5))
+for (m, e), res in EVAL.items():
+    ax.plot(range(len(bin_names)), [res[n]["mAP"] for n in bin_names], styles[e], marker="o", ms=3,
+            color=cols[m], label=f"{m} / {e}")
+ax.set_xticks(range(len(bin_names)))
+ax.set_xticklabels([n.replace("fov_d", "") + " m" for n in bin_names])
+ax.set_ylabel("mAP (fov filter)")
+ax.grid(alpha=0.3)
+ax.legend(fontsize=7, ncol=2)
+plt.tight_layout()
+plt.show()
+
+# %% [markdown]
+# ## 8. 해석
+# 수치는 eval4(4장면, 키프레임 약 160개) 기준이며 공식 val 수치와 직접 비교할 수 없다. 표의 `reported` 열은 참고용이다.
+#
+# - **sweep 효과 (a → a1)**: > (실행 후 작성) 특히 속도(mAVE)와 원거리 구간 변화
+# - **시야 크롭 (a1 → a2)**: > (실행 후 작성) `fov_cams`가 6캠이면 크롭 영향은 작아야 한다. 차이가 크면 원인 기록
+# - **LiDAR vs pseudo-LiDAR (a2 ↔ b)**: > (실행 후 작성) 거리 구간별 격차, PointPillars와 CenterPoint의 민감도 차이
+#   (CenterPoint는 intensity를 쓰므로 0으로 채운 pseudo 입력의 분포 차이가 더 클 수 있음)
+# - **카메라만 쓸 때 (b ↔ d)**: > (실행 후 작성) FCOS3D vs pseudo-LiDAR+LiDAR 탐지기, NDS 구성(mATE/mAOE/mAVE) 차이
+# - **융합 (a ↔ c, c ↔ c1)**: > (실행 후 작성)
+# - **mini_val 대조**: > (실행 후 작성) mmdet3d 기본 mini_val 값과 bench3d `mini_val_official` 값 일치 여부
+# - **속도**: > (실행 후 작성) 데이터 로딩 포함/제외 samples/s 차이(10 sweep 파일 읽기 비용)

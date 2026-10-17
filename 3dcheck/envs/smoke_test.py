@@ -79,6 +79,21 @@ def _pointops():
     import pointops  # noqa: F401
 
 
+def _pointcept_v151():
+    import subprocess
+
+    root = THIRD_PARTY / "Pointcept-v1.5.1"
+    if importlib.util.find_spec("pointgroup_ops") is None or not root.exists():
+        raise Skip("not installed (PTV3_V151=1)")
+    code = (
+        "import pointcept, pointcept.models; from pointcept.models.builder import MODELS; "
+        "assert 'PT-v3m1' in MODELS.module_dict; assert 'v1.5.1' in pointcept.__file__"
+    )
+    r = subprocess.run([sys.executable, "-c", code], env={**os.environ, "PYTHONPATH": str(root)},
+                       capture_output=True, text=True, cwd="/")
+    assert r.returncode == 0, (r.stderr.strip().splitlines() or ["?"])[-1]
+
+
 def _pointcept_models():
     from pointcept.models.builder import MODELS
 
@@ -145,6 +160,7 @@ CHECKS = {
             ),
         ),
         ("pointops (opt.)", None, _pointops),
+        ("Pointcept v1.5.1 + PTv3 (opt.)", None, _pointcept_v151),
         ("Sonata", None, "import sonata"),
         ("Concerto", None, "import concerto"),
         ("nuscenes-devkit", None, "from nuscenes.utils.data_classes import LidarSegPointCloud"),

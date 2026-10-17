@@ -64,6 +64,8 @@ def bev(
     """Bird's-eye view scatter in the ego/LiDAR frame (x forward, y left). boxes_xy: list of (4,2) corners."""
     pts = np.asarray(points)
     m = (np.abs(pts[:, 0]) < extent) & (np.abs(pts[:, 1]) < extent)
+    if color is not None and not isinstance(color, str) and len(color) == len(pts):
+        color = np.asarray(color)[m]  # per-point colors must follow the same mask
     ax.scatter(pts[m, 0], pts[m, 1], s=s, c=color, label=label, linewidths=0)
     for c in boxes_xy or []:
         cc = np.vstack([c, c[:1]])

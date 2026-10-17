@@ -38,6 +38,8 @@ huggingface_hub
 # imported unconditionally by pointcept (engines/hooks) -> required even if you never log to W&B
 wandb
 torch_geometric
+# official environment.yml installs it from git; Pointcept v1.5.1 imports it unconditionally (OctFormer)
+ocnn
 
 # nuScenes lidarseg loading + Pointcept nuScenes preprocessing
 nuscenes-devkit==1.2.0
