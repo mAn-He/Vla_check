@@ -1,0 +1,13 @@
+# Applied to every uv install in the 3dv env so nothing silently upgrades the core stack.
+# torch<=2.1 is forced by mmdet3d 1.4.0 (mmcv>=2.0.0rc4,<2.2.0; mmcv 2.1.0 wheels exist up to torch 2.1).
+torch==2.1.2
+torchvision==0.16.2
+# xformers 0.0.23.post1 declares torch==2.1.2 (PyPI metadata); required by Depth Anything 3.
+xformers==0.0.23.post1
+# nuscenes-devkit 1.2.0, VGGT and Depth Anything 3 all require numpy<2.
+numpy<2
+mmcv==2.1.0
+mmdet==3.3.0
+mmdet3d==1.4.0
+# nerfstudio 1.1.5 pins gsplat 1.4.0.
+gsplat==1.4.0

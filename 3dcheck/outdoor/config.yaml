@@ -1,0 +1,19 @@
+# Outdoor (nuScenes-mini) config. Paths are relative to the 3dcheck/ root.
+# Model / profile sections are added in step 2 together with the notebooks.
+
+dataset:
+  name: nuscenes
+  version: v1.0-mini
+  data_root: data/nuscenes          # contains samples/ sweeps/ maps/ v1.0-mini/ lidarseg/
+  archives_dir: data/downloads      # where the downloaded .tgz / .tar.bz2 files are placed
+
+# Official checkpoints are trained on the official train split. 6 of the 8 mini_train scenes belong to it,
+# so evaluation uses only mini scenes from the official val split (see docs/step0_research.md, section 2).
+splits:
+  eval4: [scene-0103, scene-0916, scene-0553, scene-0796]
+  probe6: [scene-0061, scene-0655, scene-0757, scene-1077, scene-1094, scene-1100]
+  mini_val_official: [scene-0103, scene-0916]
+
+profile: mid        # low (<=8GB) | mid (12-16GB, RTX 3060 12GB) | high (24GB+, RunPod)
+seed: 0
+results_root: results/outdoor

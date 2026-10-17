@@ -1,0 +1,50 @@
+# uv layer for the 3dv env. Install with:
+#   uv pip install --python <env python> -r 3dv.requirements.txt -c 3dv.constraints.txt -f <mmcv wheel index>
+# Versions without a pin are resolved by uv under the constraints file.
+
+# core (PyPI default wheels for torch 2.1.2 are CUDA 12.1 builds)
+torch==2.1.2
+torchvision==0.16.2
+xformers==0.0.23.post1
+
+# notebooks
+jupyterlab
+ipykernel
+ipywidgets
+nbformat
+pyyaml
+tqdm
+pandas
+
+# data / geometry / viz
+nuscenes-devkit==1.2.0
+open3d
+plotly
+matplotlib
+scipy
+scikit-learn
+opencv-python
+trimesh
+plyfile
+pyquaternion
+
+# 3D detection (mmcv 2.1.0 comes from the OpenMMLab wheel index, see setup_3dv.sh)
+mmengine>=0.8.0,<1.0.0
+mmcv==2.1.0
+mmdet==3.3.0
+mmdet3d==1.4.0
+onnx
+onnxruntime
+
+# NeRF / 3DGS / SfM
+nerfstudio==1.1.5
+gsplat==1.4.0
+pycolmap
+
+# feed-forward geometry deps (DUSt3R/MASt3R from requirements.txt; VGGT/DA3 installed from git in setup)
+roma
+einops
+huggingface_hub
+safetensors
+timm
+pyglet<2

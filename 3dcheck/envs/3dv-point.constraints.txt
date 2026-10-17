@@ -1,0 +1,6 @@
+# Pointcept official environment.yml: pytorch 2.5.0 / torchvision 0.20.0 / CUDA 12.4.
+torch==2.5.0
+torchvision==0.20.0
+spconv-cu124==2.3.8
+# nuscenes-devkit 1.2.0 requires numpy<2.
+numpy<2

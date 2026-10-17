@@ -1,0 +1,42 @@
+# uv layer for the 3dv-point env (Pointcept / Sonata / Concerto). Install with:
+#   uv pip install --python <env python> -r 3dv-point.requirements.txt -c 3dv-point.constraints.txt -f <pyg wheel index>
+# Package list follows Pointcept/environment.yml (pip + conda sections), minus CLIP/ocnn/pointgroup_ops
+# which PTv3/Sonata/Concerto do not use.
+
+torch==2.5.0
+torchvision==0.20.0
+spconv-cu124==2.3.8
+# from https://data.pyg.org/whl/torch-2.5.0+cu124.html (see setup_3dv-point.sh)
+torch-scatter
+torch-cluster
+
+# notebooks
+ipykernel
+ipywidgets
+nbformat
+pyyaml
+tqdm
+pandas
+
+# Pointcept runtime deps (environment.yml)
+h5py
+tensorboard
+tensorboardx
+addict
+einops
+scipy
+plyfile
+termcolor
+timm
+ftfy
+regex
+matplotlib
+open3d
+peft
+yapf
+huggingface_hub
+
+# nuScenes lidarseg loading + Pointcept nuScenes preprocessing
+nuscenes-devkit==1.2.0
+pyquaternion
+plotly

@@ -1,0 +1,24 @@
+# Conda layer only: interpreter, CUDA toolkit (nvcc + headers) and compilers.
+# Python packages are installed afterwards with uv (see 3dv.requirements.txt, setup_3dv.sh).
+name: 3dv
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - uv
+  - git
+  - ninja
+  - cmake
+  # nvcc + dev headers for JIT / extension builds (gsplat, BEVFusion ops, curope, tiny-cuda-nn).
+  # Must match the CUDA of the torch wheel (torch 2.1.2 on PyPI = cu121).
+  # Not the `cuda-toolkit` metapackage: it also pulls Nsight GUI deps (Qt, gstreamer), ~4GB extra.
+  - cuda-version=12.1
+  - cuda-nvcc
+  - cuda-cudart-dev
+  - cuda-libraries-dev
+  - cuda-nvtx-dev
+  - cuda-profiler-api
+  - cuda-cccl
+  # CUDA 12.1 accepts host gcc up to 12.
+  - gxx=12.4

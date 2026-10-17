@@ -1,0 +1,24 @@
+# Conda layer only. Mirrors the toolchain of Pointcept's official environment.yml
+# (python 3.10, CUDA 12.4, gcc 13.2); torch itself comes from PyPI via uv (PyPI torch 2.5.0 = cu124).
+# google-sparsehash (bioconda) from the official file is omitted: not needed by PTv3/Sonata/Concerto.
+name: 3dv-point
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - uv
+  - git
+  - ninja
+  - cmake
+  # nvcc for optional source builds (pointops, flash-attn when no prebuilt wheel matches)
+  # slim toolkit (no Nsight GUI deps), see 3dv.environment.yml
+  - cuda-version=12.4
+  - cuda-nvcc
+  - cuda-cudart-dev
+  - cuda-libraries-dev
+  - cuda-nvtx-dev
+  - cuda-profiler-api
+  - cuda-cccl
+  - gcc=13.2
+  - gxx=13.2

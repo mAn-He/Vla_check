@@ -1,0 +1,11 @@
+# name            env        commit/tag                                 url
+# Commits are the default-branch HEADs read on 2026-10-17 (step 0 research).
+mast3r            3dv        f5209afc300cec36239a7ac992263f36847bbba0   https://github.com/naver/mast3r.git
+vggt              3dv        a288dd0f14786c93483e45524328726ab7b1b4ce   https://github.com/facebookresearch/vggt.git
+Depth-Anything-3  3dv        3d835ec1a5802d64a8b8b15f817a1ab54809bfe4   https://github.com/ByteDance-Seed/Depth-Anything-3.git
+Depth-Anything-V2 3dv        a561b849ebae10a6f5ef49e26c83cbbcd36c71bf   https://github.com/DepthAnything/Depth-Anything-V2.git
+mmdetection3d     3dv        v1.4.0                                     https://github.com/open-mmlab/mmdetection3d.git
+Pointcept         3dv-point  1342eda30e96cbb5fadf5374ff8eb18f6de15c71   https://github.com/Pointcept/Pointcept.git
+Pointcept-v1.5.1  3dv-point  v1.5.1                                     https://github.com/Pointcept/Pointcept.git
+Concerto          3dv-point  5b41117160cdd92c3538be1911277b17e7ef5871   https://github.com/Pointcept/Concerto.git
+sonata            3dv-point  18c09ff8d713494f78a8213792262b910977a65d   https://github.com/facebookresearch/sonata.git
