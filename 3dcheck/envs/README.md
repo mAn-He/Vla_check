@@ -56,8 +56,8 @@ Colab은 노트북 커널로 conda env를 고를 수 없습니다. 그래서 env
 | VGGT | 공식 requirements.txt는 torch==2.3.1입니다. `3dv`에서는 torch 2.1.2로 쓰며 실행 검증은 TODO(verify)입니다. |
 | CUDA 12.1 선택 | nerfstudio 문서는 cu118을 권장합니다. PyPI의 torch 2.1.2와 xformers 0.0.23.post1 기본 휠이 cu121이라서 cu121로 통일했습니다. |
 | conda `cuda-toolkit` 미사용 | 메타패키지가 Nsight GUI 의존성(Qt, gstreamer)까지 설치해 약 4GB가 늘어납니다. nvcc와 dev 헤더만 설치합니다. |
-| gcc 11 고정 (`3dv`) | gcc 12 + nvcc 12.1에서 torch 2.1에 포함된 pybind11(`cast.h:45`) 컴파일 오류가 납니다. `.cu`에서 `<torch/extension.h>`를 include하는 확장(DUSt3R curope)이 실패하고, gcc 11.4와 10.4는 통과했습니다(1단계 실측). |
-| gcc 11 고정 (`3dv-point`) | Pointcept 공식 파일은 gcc 13.2이지만, conda-forge의 cuda-nvcc 12.4는 gcc 13 미만을 요구합니다. gcc 12.4 + glibc 2.39 sysroot에서는 nvcc가 `stdlib.h`의 `_Float32`에서 실패하고(pointops), gcc 11 또는 sysroot 2.28이면 통과했습니다(1단계 실측). |
+| 확장 빌드의 호스트 컴파일러 | 설치 스크립트는 env를 활성화하지 않으므로, 그대로 두면 nvcc가 시스템 gcc(Ubuntu 24.04는 13.3)를 씁니다. 1단계에서 이 때문에 pointops가 glibc `stdlib.h`의 `_Float32`에서, curope가 pybind11 `cast.h`에서 실패했습니다. `_lib.sh`의 `cuda_env`가 `PATH`, `CC`, `CXX`를 env의 gcc로 지정해 해결했습니다. 대조 실험에서 시스템 gcc는 실패, env gcc는 성공했습니다. |
+| gcc 버전 | 두 env 모두 gcc 11입니다. `3dv-point`는 Pointcept 공식 파일이 gcc 13.2이지만, conda-forge의 cuda-nvcc 12.4는 gcc 13 미만만 허용해 13.2로는 해석되지 않습니다. gcc 12는 호스트 컴파일러 문제를 고친 뒤 다시 검증하지 않았습니다. |
 | BEVFusion 연산자 빌드 | 공식 README는 `setup.py develop`이지만, setuptools 80 이상에서는 격리된 `pip install -e .`(저장소 루트 전체)로 바뀌어 실패합니다. 같은 `.so`를 만드는 `build_ext --inplace`를 씁니다. GPU가 없는 빌드 머신에서는 `FORCE_CUDA=1`이 필요합니다(`_lib.sh`가 설정). |
 | open3d와 libEGL | 헤드리스 이미지에는 `libEGL.so.1`이 없어 open3d import가 실패합니다. conda 층에 `libegl`과 `libgl`을 넣었습니다. |
 | conda-forge CUDA 헤더 경로 | 헤더가 `$PREFIX/targets/x86_64-linux/include`에 있습니다. 확장 빌드 시 `_lib.sh`의 `cuda_env`가 `CPATH`를 설정합니다. |

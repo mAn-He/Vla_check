@@ -82,6 +82,13 @@ add_pth() {
 cuda_env() {
   local prefix="$1"
   export CUDA_HOME="$prefix"
+  # Use the env's gcc, not the system one: the env is not activated here, so without this nvcc picks up
+  # /usr/bin/gcc (e.g. gcc 13 on Ubuntu 24.04) and fails on glibc / pybind11 headers.
+  # torch.utils.cpp_extension passes $CC to nvcc as -ccbin.
+  export PATH="$prefix/bin:$PATH"
+  export CC="$prefix/bin/x86_64-conda-linux-gnu-gcc"
+  export CXX="$prefix/bin/x86_64-conda-linux-gnu-g++"
+  export CUDAHOSTCXX="$CXX"
   # conda-forge CUDA 12 puts headers under targets/; torch.utils.cpp_extension only looks in $CUDA_HOME/include
   export CPATH="$prefix/targets/x86_64-linux/include${CPATH:+:$CPATH}"
   export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.6}"   # RTX 3060 = sm86

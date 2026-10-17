@@ -20,8 +20,8 @@ dependencies:
   - cuda-nvtx-dev
   - cuda-profiler-api
   - cuda-cccl
-  # gcc 11: with gcc 12, nvcc 12.1 fails on torch 2.1's bundled pybind11 (cast.h:45) for .cu files that
-  # include <torch/extension.h> (e.g. DUSt3R curope). Verified in step 1: gcc 11.4 / 10.4 build, 12.4 fails.
+  # gcc 11 (CUDA 12.1 accepts gcc <= 12). Verified in step 1 with BEVFusion ops and DUSt3R curope builds.
+  # Extension builds must use this compiler, not the system one: envs/_lib.sh:cuda_env sets PATH/CC/CXX.
   - gxx=11
   # open3d needs libEGL/libGL; headless images (RunPod, CI) often lack them
   - libegl

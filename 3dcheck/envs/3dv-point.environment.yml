@@ -20,9 +20,9 @@ dependencies:
   - cuda-nvtx-dev
   - cuda-profiler-api
   - cuda-cccl
-  # Official file uses gcc 13.2 (NVIDIA channel). On conda-forge, cuda-nvcc 12.4 requires gcc <13, and
-  # gcc 12.4 + the glibc 2.39 sysroot fails in nvcc on stdlib.h `_Float32` (pointops build). gcc 11 builds
-  # (verified in step 1), matching the 3dv env.
+  # Official file uses gcc 13.2 (NVIDIA channel); conda-forge cuda-nvcc 12.4 requires gcc <13 (does not solve
+  # with 13.2). gcc 11 matches the 3dv env and builds pointops (step 1). Extension builds must use this
+  # compiler, not the system one: envs/_lib.sh:cuda_env sets PATH/CC/CXX.
   - gcc=11
   - gxx=11
   # open3d needs libEGL/libGL; headless images (RunPod, CI) often lack them
