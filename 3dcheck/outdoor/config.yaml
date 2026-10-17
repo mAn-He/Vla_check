@@ -106,7 +106,8 @@ models:
     methods: [nerfacto, instant-ngp, splatfacto]
     dataparser: nuscenes-data       # nerfstudio/data/dataparsers/nuscenes_dataparser.py
     camera: FRONT                   # parser accepts FRONT, FRONT_LEFT, ... (single camera only)
-    train_split_fraction: 0.9       # parser default
+    train_split_fraction: 0.9       # parser default -> only ~4 eval views out of ~40 keyframes (small sample)
+    mask_velocity_thresh: 0.75      # nerfstudio scripts/datasets/process_nuscenes_masks.py default (m/s)
 
 # Pseudo-LiDAR input for detection/segmentation is chosen in 04 from the 02 results;
 # set explicitly here to override (model id from models.depth).
