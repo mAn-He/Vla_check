@@ -103,10 +103,10 @@ DA V2는 실내(Hypersim)와 실외(VKITTI) 체크포인트가 달라서 교차 
 ## 6. 남은 TODO(verify)
 
 1. VGGT를 torch 2.1.2에서 실행했을 때의 정상 동작 (공식 고정값은 2.3.1)
-2. DA3 metric 변환에서 focal을 리사이즈된 해상도 기준으로 써야 하는지
+2. ~~DA3 metric 변환의 focal 해상도~~ → 2단계에서 소스로 결정: 처리 해상도(504×280) 기준 focal 사용(`model/da3.py`, `utils/alignment.py`, nested 설정). 02 노트북에 근거와 런타임 점검 포함
 3. DA3를 torch 2.1.2 + xformers 0.0.23.post1에서 실행했을 때의 정상 동작
-4. PTv3 nuScenes 가중치(HF `Pointcept/PointTransformerV3/nuscenes-semseg-pt-v3m1-0-base`)가 Pointcept v1.5.1에서 로드되는지
-5. BEVFusion 추론만 할 때 Swin 사전학습 가중치를 별도로 받아야 하는지
+4. PTv3 nuScenes 가중치(HF `Pointcept/PointTransformerV3/nuscenes-semseg-pt-v3m1-0-base`)가 Pointcept v1.5.1에서 로드되는지. v1.5.1 import 자체는 `ocnn` + `pointgroup_ops`(`PTV3_V151=1`)로 2단계에서 해결
+5. ~~BEVFusion 추론 시 Swin 가중치~~ → 불필요: `Runner.test()`는 `init_weights`를 호출하지 않음(2단계 확인)
 6. nuScenes LiDAR `.bin` 5번째 열의 의미(ring index로 알려져 있으나 devkit 코드에 명시 없음)
 7. DUSt3R/MASt3R의 ScanNet++ train 장면 목록, VGGT의 ScanNet++ 학습 사용 여부 (실내)
 8. 각 모델의 RTX 3060 실측 VRAM (00 노트북에서 측정)

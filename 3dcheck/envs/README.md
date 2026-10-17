@@ -41,6 +41,7 @@ bash envs/setup_3dv-point.sh    # 3dv-point 커널
 | `PYG_INDEX` | PyG torch-2.5.0+cu124 휠 인덱스 | `""`이면 torch-scatter/cluster 소스 빌드 |
 | `FLASH_ATTN=1` | 0 | flash-attn 설치 (Ampere 이상, RTX 3060 가능) |
 | `POINTOPS=1` | 0 | Pointcept pointops 빌드 (PTv3에는 불필요) |
+| `PTV3_V151=1` | 0 | Pointcept v1.5.1의 `pointgroup_ops` 설치. 06의 PTv3 공식 nuScenes 가중치 시도에 필요 |
 | `TORCH_CUDA_ARCH_LIST` | 8.6 | 확장 빌드 대상 GPU 아키텍처 (RTX 3060 = 8.6, A100 = 8.0, L4/4090 = 8.9) |
 
 ## Colab에서 쓰기
@@ -60,6 +61,7 @@ Colab은 노트북 커널로 conda env를 고를 수 없습니다. 그래서 env
 | gcc 버전 | 두 env 모두 gcc 11입니다. `3dv-point`는 Pointcept 공식 파일이 gcc 13.2이지만, conda-forge의 cuda-nvcc 12.4는 gcc 13 미만만 허용해 13.2로는 해석되지 않습니다. gcc 12는 호스트 컴파일러 문제를 고친 뒤 다시 검증하지 않았습니다. |
 | BEVFusion 연산자 빌드 | 공식 README는 `setup.py develop`이지만, setuptools 80 이상에서는 격리된 `pip install -e .`(저장소 루트 전체)로 바뀌어 실패합니다. 같은 `.so`를 만드는 `build_ext --inplace`를 씁니다. GPU가 없는 빌드 머신에서는 `FORCE_CUDA=1`이 필요합니다(`_lib.sh`가 설정). |
 | transformers 5.x | `peft`(Pointcept LoRA)가 transformers를 끌어오는데, 5.x는 torch 2.6 미만에서 torch를 비활성화해 `import pointcept.models`가 실패합니다. `3dv-point.constraints.txt`에 `transformers<5`를 넣었습니다. |
+| ocnn, sparsehash | Pointcept v1.5.1은 `ocnn`(OctFormer)과 `pointgroup_ops`를 예외 처리 없이 import합니다. `ocnn`은 requirements에, `pointgroup_ops` 빌드용 `sparsehash` 헤더는 conda 층에 넣었습니다. |
 | wandb, torch_geometric | Pointcept가 W&B를 쓰지 않아도 무조건 import합니다. 공식 yml에 있는 두 패키지를 requirements에 넣었습니다. |
 | open3d와 libEGL | 헤드리스 이미지에는 `libEGL.so.1`이 없어 open3d import가 실패합니다. conda 층에 `libegl`과 `libgl`을 넣었습니다. |
 | conda-forge CUDA 헤더 경로 | 헤더가 `$PREFIX/targets/x86_64-linux/include`에 있습니다. 확장 빌드 시 `_lib.sh`의 `cuda_env`가 `CPATH`를 설정합니다. |
@@ -90,7 +92,7 @@ import, 버전 확인, CUDA 확장 컴파일과 로드까지만 검증했고, GP
 
 tiny-cuda-nn은 빌드 시간이 길어 컨테이너에서는 검증하지 않았습니다(`BUILD_TCNN=0`).
 
-### `3dv-point`: 14/14 통과 (`POINTOPS=1`)
+### `3dv-point`: 15/15 통과 (`POINTOPS=1`, `PTV3_V151=1`)
 
 | 항목 | 버전 / 내용 |
 |---|---|
@@ -103,6 +105,7 @@ tiny-cuda-nn은 빌드 시간이 길어 컨테이너에서는 검증하지 않�
 | pointops (선택) | sm86 컴파일, import |
 | Sonata / Concerto | 고정 커밋, import |
 | transformers | 4.57.6 (`<5`로 고정, 아래 참고) |
+| Pointcept v1.5.1 (선택) | `PYTHONPATH`로 v1.5.1을 앞세웠을 때 `pointcept.models` import, PTv3 등록 (별도 프로세스에서 확인) |
 
 flash-attn은 컨테이너에서 받을 수 없어(GitHub 릴리스 차단) 검증하지 않았습니다. 없으면 config에서 `enable_flash=False`로 둡니다.
 `pointrope` CUDA 확장이 없을 때는 Pointcept가 PyTorch 대체 구현을 쓴다는 경고만 냅니다.

@@ -170,8 +170,8 @@ PAL16 = bp.class_palette(NUM16)
 print(NUM16, "classes:", NAMES16)
 
 # pseudo-LiDAR sources written by notebook 04 (same relative lidar_path layout under <model>/pseudo/)
-# TODO(verify): 04 stores each cloud at pseudo/<real LIDAR_TOP filename> (samples/LIDAR_TOP/<basename>.bin);
-#               the 04 manifest json is not parsed here, files are matched by that relative path only.
+# 04 stores each cloud at pseudo/<real LIDAR_TOP filename> (samples/LIDAR_TOP/<basename>.bin, see 04 "저장" cell);
+# files are matched by that relative path, the 04 manifest json is not needed here.
 PSEUDO_ROOT = cfg.path(cfg["results_root"]) / "04_pseudo_lidar"
 if cfg.get("pseudo_lidar_source"):
     PSEUDO_SRCS = [cfg["pseudo_lidar_source"]]

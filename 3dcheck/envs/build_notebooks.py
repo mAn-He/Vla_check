@@ -61,6 +61,8 @@ def main() -> int:
         for src in sorted((ROOT / part / "notebooks" / "src").glob("[0-9][0-9]_*.py")):
             nb = jupytext.read(src)
             nb.metadata.pop("jupytext", None)
+            for i, cell in enumerate(nb.cells):  # jupytext assigns random ids; make builds reproducible
+                cell.id = f"c{i:03d}"
             out = src.parent.parent / f"{src.stem}.ipynb"
             errors += check_notebook(nb, src.name)
             new_text = nbformat.writes(nb)
