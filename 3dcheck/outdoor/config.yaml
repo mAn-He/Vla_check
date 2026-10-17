@@ -51,12 +51,19 @@ models:
       image_size: 512
       scene_graph: complete
       sparse_ga: {lr1: 0.07, lr2: 0.01, optim_level: refine+depth, matching_conf_thr: 0.0, shared_intrinsics: false}
+      min_conf_thr: 1.5             # mast3r/demo.py slider default
+      clean_depth: true             # mast3r/demo.py default
     vggt:                           # vggt/README.md
       hf_repo: facebook/VGGT-1B
       preprocess_mode: crop         # width -> 518, sides divisible by 14
+      point_source: depth           # README: depth+camera unprojection usually more accurate than the point head
+      conf_percentile: 50           # demo_gradio.py: drop the lowest 50% confidence
     da3_anyview:
       hf_repo: depth-anything/DA3-LARGE-1.1
       process_res: 504              # api.py default
+      conf_thresh: 1.05             # utils/export/glb.py: clamp(conf_thresh, p40, p90)
+      conf_thresh_percentile: 40
+      ensure_thresh_percentile: 90
   detection:                        # mmdetection3d configs/*/metafile.yml, projects/BEVFusion/README.md
     pointpillars:
       config: configs/pointpillars/pointpillars_hv_fpn_sbn-all_8xb4-2x_nus-3d.py
@@ -125,6 +132,7 @@ profiles:
       mast3r_niter2: 300
       crop_max_depth: 50            # GT/pred clouds cropped to input frustums within this range
       voxel: 0.2                    # density equalization before Chamfer
+      gt_ego_radius: 1.0            # drop LiDAR returns on the ego car (devkit remove_close rule)
     pseudo_lidar:
       cams: [CAM_FRONT, CAM_FRONT_LEFT, CAM_FRONT_RIGHT, CAM_BACK, CAM_BACK_LEFT, CAM_BACK_RIGHT]
       pixel_stride: 4
